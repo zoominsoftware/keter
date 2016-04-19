@@ -1,1 +1,24 @@
-/home/vlatko/SuiteSol/.hgignore
+.emacs-desktop
+.cabal-sandbox/
+.stack-work/
+.gitignore
+.git
+
+
+cabal.sandbox.config
+TAGS
+
+dist/
+dist-stack/
+temp/
+log/
+
+
+\.swp
+\.o
+\.dyn_o
+\.hi
+\.dyn_hi
+\.keter
+syntax: glob
+.projectile
