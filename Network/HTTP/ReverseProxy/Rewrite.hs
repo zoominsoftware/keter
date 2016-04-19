@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE TupleSections     #-}
 {-# LANGUAGE CPP               #-}
 module Network.HTTP.ReverseProxy.Rewrite
   ( ReverseProxyConfig (..)
@@ -12,21 +13,22 @@ module Network.HTTP.ReverseProxy.Rewrite
 import Control.Applicative
 import Control.Exception (bracket)
 import Data.Function (fix)
+import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 
 import qualified Data.Set as Set
 import Data.Set (Set)
 import qualified Data.Map as Map
 import Data.Map ( Map )
-import Data.Array ((!))
 import Data.Aeson
 import Control.Monad (unless)
 
 import qualified Data.ByteString as S
+import qualified Data.ByteString.Char8 as BSC
+import qualified Data.CaseInsensitive as CI
 import qualified Data.Text as T
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8, decodeUtf8)
-import qualified Data.CaseInsensitive as CI
 
 import Blaze.ByteString.Builder (fromByteString)
 
@@ -35,10 +37,8 @@ import Keter.Types.Common
 import Data.Default
 
 -- Regular expression parsing, replacement, matching
-import Data.Attoparsec.Text (string, takeWhile1, endOfInput, parseOnly, Parser)
-import Text.Regex.TDFA (makeRegex, matchOnceText, MatchText)
-import Text.Regex.TDFA.String (Regex)
-import Data.Char (isDigit)
+import Text.Regex.TDFA (makeRegex, matchOnceText)
+import Text.Regex.TDFA.Common (Regex (..))
 
 -- Reverse proxy apparatus
 import qualified Network.Wai as Wai
@@ -46,6 +46,9 @@ import qualified Network.Wai.Internal as I
 import Network.HTTP.Client.Conduit
 import qualified Network.HTTP.Client as NHC
 import Network.HTTP.Types
+import Network.URI (URI (..), URIAuth (..), nullURI)
+
+import Keter.Proxy.Rewrite (RewritePath, rewrite, rewritePathRule)
 
 data RPEntry = RPEntry
     { config :: ReverseProxyConfig
@@ -54,35 +57,6 @@ data RPEntry = RPEntry
 
 instance Show RPEntry where
   show x = "RPEntry { config = " ++ (show $ config x) ++ " }"
-
-getGroup :: MatchText String -> Int -> String
-getGroup matches i = fst $ matches ! i
-
-rewrite :: (String, MatchText String, String) -> String -> String -> Text
-rewrite (before, match, after) input replacement =
-  case parseOnly parseSubstitute (T.pack replacement) of
-    Left _ -> T.pack input
-    Right result -> T.pack before <> result <> T.pack after
-  where
-    parseSubstitute :: Parser Text
-    parseSubstitute =
-          (endOfInput >> "")
-      <|> do
-          { _ <- string "\\\\"
-          ; rest <- parseSubstitute
-          ; return $ "\\" <> rest
-          }
-      <|> do
-          { _ <- string "\\"
-          ; n <- (fmap (read . T.unpack) $ takeWhile1 isDigit) :: Parser Int
-          ; rest <- parseSubstitute
-          ; return $ T.pack (getGroup match n) <> rest
-          }
-      <|> do
-          { text <- takeWhile1 (/= '\\')
-          ; rest <- parseSubstitute
-          ; return $ text <> rest
-          }
 
 rewriteHeader :: Map HeaderName RewriteRule -> Header -> Header
 rewriteHeader rules header@(name, value) =
@@ -96,7 +70,7 @@ rewriteHeaders ruleMap = map (rewriteHeader ruleMap)
 regexRewrite :: RewriteRule -> S.ByteString -> S.ByteString
 regexRewrite (RewriteRule _ regex' replacement) input =
   case matchOnceText regex strInput of
-    Just  match -> encodeUtf8 $ rewrite match strInput strReplacement
+    Just  match -> encodeUtf8 $ rewrite '\\' match strInput strReplacement
     Nothing     -> input
   where
     strRegex = T.unpack regex'
@@ -116,8 +90,9 @@ filterHeaders = filter useHeader
 mkRuleMap :: Set RewriteRule -> Map HeaderName RewriteRule
 mkRuleMap = Map.fromList . map (\k -> (CI.mk . encodeUtf8 $ ruleHeader k, k)) . Set.toList
 
-mkRequest :: ReverseProxyConfig -> Wai.Request -> Request
+mkRequest :: ReverseProxyConfig -> Wai.Request -> (Request, Maybe URI)
 mkRequest rpConfig request =
+  (, mkURI) $
 #if MIN_VERSION_http_client(0, 5, 0)
    NHC.defaultRequest
       { NHC.checkResponse = \_ _ -> return ()
@@ -129,33 +104,48 @@ mkRequest rpConfig request =
 #endif
       , method = Wai.requestMethod request
       , secure = reversedUseSSL rpConfig
-      , host   = encodeUtf8 $ reversedHost rpConfig
+      , host   = BSC.pack host
       , port   = reversedPort rpConfig
-      , path   = Wai.rawPathInfo request
-      , queryString = Wai.rawQueryString request
-      , requestHeaders = filterHeaders $ rewriteHeaders reqRuleMap (Wai.requestHeaders request)
+      , path           = BSC.pack $ uriPath  uri
+      , queryString    = BSC.pack $ uriQuery uri
+      , requestHeaders = filterHeaders $ rewriteHeaders reqRuleMap headers
       , requestBody =
           case Wai.requestBodyLength request of
             Wai.ChunkedBody   -> RequestBodyStreamChunked ($ I.getRequestBodyChunk request)
             Wai.KnownLength n -> RequestBodyStream (fromIntegral n) ($ I.getRequestBodyChunk request)
       , decompress = const False
-      , redirectCount = 0
+      , redirectCount = 10 -- FIXMEE: Why is this reduced to 0 from default 10???
       , cookieJar = Nothing
       , requestVersion = Wai.httpVersion request
       }
   where
+    headers    = Wai.requestHeaders request
+    mkURI      = rewritePathRule (rewritePath rpConfig) rewURI
+    uri        = fromMaybe rewURI mkURI
     reqRuleMap = mkRuleMap $ rewriteRequestRules rpConfig
+    host       = T.unpack  $ reversedHost        rpConfig
+    rewURI     =
+      nullURI{uriAuthority = Just $ URIAuth ""
+                                            (maybe host BSC.unpack $ lookup "Host" headers)
+                                            "",
+              uriPath      = BSC.unpack $ Wai.rawPathInfo    request,
+              uriQuery     = BSC.unpack $ Wai.rawQueryString request}
+
 
 simpleReverseProxy :: Manager -> ReverseProxyConfig -> Wai.Application
 simpleReverseProxy mgr rpConfig request sendResponse = bracket
     (NHC.responseOpen proxiedRequest mgr)
-    responseClose
+    (\res -> do
+        responseClose res
+        case mRewrite of
+          Just rp -> putStrLn $ "Rewrite path: " <> show rp
+          _       -> return ())
     $ \res -> sendResponse $ Wai.responseStream
         (responseStatus res)
         (rewriteHeaders respRuleMap $ responseHeaders res)
         (sendBody $ responseBody res)
   where
-    proxiedRequest = mkRequest rpConfig request
+    (proxiedRequest, mRewrite) = mkRequest rpConfig request
     respRuleMap = mkRuleMap $ rewriteResponseRules rpConfig
     sendBody body send _flush = fix $ \loop -> do
         bs <- body
@@ -172,6 +162,7 @@ data ReverseProxyConfig = ReverseProxyConfig
     , reverseTimeout :: Maybe Int
     , rewriteResponseRules :: Set RewriteRule
     , rewriteRequestRules :: Set RewriteRule
+    , rewritePath          :: [RewritePath]
     } deriving (Eq, Ord, Show)
 
 instance FromJSON ReverseProxyConfig where
@@ -184,6 +175,7 @@ instance FromJSON ReverseProxyConfig where
         <*> o .:? "timeout" .!= Nothing
         <*> o .:? "rewrite-response" .!= Set.empty
         <*> o .:? "rewrite-request" .!= Set.empty
+        <*> o .:? "rewrite-path"     .!= []
     parseJSON _ = fail "Wanted an object"
 
 instance ToJSON ReverseProxyConfig where
@@ -196,6 +188,7 @@ instance ToJSON ReverseProxyConfig where
         , "timeout" .= reverseTimeout
         , "rewrite-response" .= rewriteResponseRules
         , "rewrite-request" .= rewriteRequestRules
+        , "rewrite-path"     .= rewritePath
         ]
 
 instance Default ReverseProxyConfig where
@@ -208,6 +201,7 @@ instance Default ReverseProxyConfig where
         , reverseTimeout = Nothing
         , rewriteResponseRules = Set.empty
         , rewriteRequestRules = Set.empty
+        , rewritePath          = []
         }
 
 data RewriteRule = RewriteRule
