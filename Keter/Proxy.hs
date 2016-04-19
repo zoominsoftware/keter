@@ -124,7 +124,7 @@ withClient isSecure useHeader bound manager hostLookup =
                         then return Nothing
                         else hostLookup host'
         case mport of
-            Nothing -> return (def, WPRResponse $ unknownHostResponse host)
+            Nothing -> (def,) . WPRResponse <$> unknownHostResponse host
             Just (action, requiresSecure)
                 | requiresSecure && not isSecure -> performHttpsRedirect host req
                 | otherwise -> performAction req action
@@ -214,10 +214,35 @@ missingHostResponse = Wai.responseBuilder
     [("Content-Type", "text/html; charset=utf-8")]
     $ copyByteString "<!DOCTYPE html>\n<html><head><title>Welcome to Keter</title></head><body><h1>Welcome to Keter</h1><p>You did not provide a virtual hostname for this request.</p></body></html>"
 
-unknownHostResponse :: ByteString -> Wai.Response
-unknownHostResponse host = Wai.responseBuilder
-    status200
-    [("Content-Type", "text/html; charset=utf-8")]
-    (copyByteString "<!DOCTYPE html>\n<html><head><title>Welcome to Keter</title></head><body><h1>Welcome to Keter</h1><p>The hostname you have provided, <code>"
-     `mappend` copyByteString host
-     `mappend` copyByteString "</code>, is not recognized.</p></body></html>")
+unknownHostResponse  :: ByteString -> IO Wai.Response
+unknownHostResponse host = do
+  m <- getBundleResponse host
+  return $ Wai.responseBuilder status200
+                              [("Content-Type", "text/html; charset=utf-8")]
+                              (copyByteString $ encodeUtf8 m)
+
+-- | Get response on unknown host request
+--  Return custom response in this search order
+--   1. Search {host}.html in /opt/keter/incoming
+--   2. Search anyHost.html in /opt/keter/incoming
+--   3. Default "Welcome to keter" page
+--  Template can use placeholder #{HOST_NAME} that'll be replaced with the requested host
+getBundleResponse :: ByteString -> IO Text
+getBundleResponse host' =
+  maybe stdKeterMsg replaceHost
+    <$> (getHtml host >>= maybe (getHtml defTemplate) (return . Just))
+  where
+    defTemplate = "anyHost"
+    host        = decodeUtf8With lenientDecode host'
+    replaceHost = T.replace "#{HOST_NAME}" host
+    getHtml fNm = do
+      let fPath = T.unpack $ "/opt/keter/incoming/" <> fNm <> ".html"
+      (Just . replaceHost <$> TIO.readFile fPath)
+        `catch` (\(_::SomeException) -> return Nothing)
+    stdKeterMsg =
+      T.concat [ "<!DOCTYPE html>\n<html><head>"
+               , "<title>Welcome to Keter</title></head><body>"
+               , "<h1>Welcome to Keter</h1>"
+               , "<p>The hostname you have provided, "
+               , "<code>", host, "</code>, "
+               , "is not recognized.</p></body></html>"]
