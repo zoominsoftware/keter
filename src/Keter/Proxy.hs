@@ -48,6 +48,7 @@ import           Network.HTTP.ReverseProxy         (ProxyDest (ProxyDest),
                                                     wpsSetIpHeader,
                                                     wpsOnExc,
                                                     wpsGetDest)
+import           Keter.Proxy.Rewrite
 import qualified Keter.Rewrite as Rewrite
 import           Data.ByteString            (ByteString)
 import Keter.Common
@@ -226,12 +227,21 @@ addjustGlobalBound bound to = go `setLpsTimeBound` defaultLocalWaiProxySettings
 
 performAction :: Manager -> Bool -> Int -> Wai.Request -> ProxyActionRaw -> IO (LocalWaiProxySettings, WaiProxyResponse)
 performAction psManager isSecure globalBound req = \case
-  (PAPort port tbound) ->
+  (PAPort port tbound rules) ->
     return (addjustGlobalBound globalBound tbound, WPRModifiedRequest req' $ ProxyDest "127.0.0.1" port)
       where
-        req' = req
+        mRew = rewritePathParts rules
+                 (Wai.rawPathInfo req, Wai.rawQueryString req)
+        req' = case mRew of
+          Nothing -> req
             { Wai.requestHeaders = ("X-Forwarded-Proto", protocol)
-                                : Wai.requestHeaders req
+                                 : Wai.requestHeaders req
+            }
+          Just (path, query) -> req
+            { Wai.requestHeaders = ("X-Forwarded-Proto", protocol)
+                                 : Wai.requestHeaders req
+            , Wai.rawPathInfo = path
+            , Wai.rawQueryString = query
             }
         protocol
             | isSecure = "https"

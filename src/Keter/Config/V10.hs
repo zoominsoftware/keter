@@ -27,6 +27,7 @@ import           Keter.Config.Middleware
 import qualified Keter.Config.V04                   as V04
 import qualified Network.Wai.Handler.Warp          as Warp
 import qualified Network.Wai.Handler.WarpTLS       as WarpTLS
+import           Keter.Proxy.Rewrite               (RewritePath)
 import           System.Posix.Types                (EpochTime)
 import           Keter.Rewrite(ReverseProxyConfig)
 import           Data.Text                  (Text)
@@ -206,7 +207,7 @@ data StanzaRaw port
 --
 -- 2. Not all stanzas have an associated proxy action.
 data ProxyActionRaw
-    = PAPort Port !(Maybe Int)
+    = PAPort Port !(Maybe Int) [RewritePath]
     | PAStatic StaticFilesConfig
     | PARedirect RedirectConfig
     | PAReverseProxy ReverseProxyConfig ![ MiddlewareConfig ] !(Maybe Int)
@@ -387,6 +388,7 @@ data WebAppConfig port = WebAppConfig
      -- | how long in microseconds the app gets before we expect it to bind to
      --   a port (default 90 seconds)
     , waconfigEnsureAliveTimeout :: !(Maybe Int)
+    , waconfigRewritePath :: ![RewritePath] -- ^ URL path rewrite rules
     }
     deriving Show
 
@@ -404,6 +406,7 @@ instance ToCurrent (WebAppConfig ()) where
         , waconfigForwardEnv = Set.empty
         , waconfigTimeout = Nothing
         , waconfigEnsureAliveTimeout = Nothing
+        , waconfigRewritePath = []
         }
 
 instance ParseYamlFile (WebAppConfig ()) where
@@ -429,6 +432,7 @@ instance ParseYamlFile (WebAppConfig ()) where
             <*> o .:? "forward-env" .!= Set.empty
             <*> o .:? "connection-time-bound"
             <*> o .:? "ensure-alive-time-bound"
+            <*> o .:? "rewrite-path" .!= []
 
 instance ToJSON (WebAppConfig ()) where
     toJSON WebAppConfig {..} = object
@@ -439,6 +443,7 @@ instance ToJSON (WebAppConfig ()) where
         , "ssl" .= waconfigSsl
         , "forward-env" .= waconfigForwardEnv
         , "connection-time-bound" .= waconfigTimeout
+        , "rewrite-path" .= waconfigRewritePath
         ]
 
 data AppInput = AIBundle !FilePath !EpochTime

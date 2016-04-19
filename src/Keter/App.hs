@@ -181,7 +181,20 @@ withActions asc bconfig f =
             stanzas
             (wac { waconfigPort = port } : wacs)
             backs
-            (Map.unions $ actions : map (\host -> Map.singleton host ((PAPort port (waconfigTimeout wac), rs), cert)) hosts))
+            (Map.unions $
+               actions :
+               map (\host -> Map.singleton
+                               host
+                               ( ( PAPort
+                                   port
+                                   (waconfigTimeout wac)
+                                   (waconfigRewritePath wac)
+                                 , rs)
+                               , cert)
+                   )
+                   hosts
+            )
+        )
       where
         hosts = Set.toList $ Set.insert (waconfigApprootHost wac) (waconfigHosts wac)
     loop (Stanza (StanzaStaticFiles sfc) rs:stanzas) wacs backs actions0 = do

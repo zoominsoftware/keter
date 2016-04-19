@@ -79,7 +79,7 @@ headThenPostNoCrash = do
 
     settings :: TQueue (Wai.Request, SomeException) ->  Manager -> ProxySettings
     settings expections manager = MkProxySettings {
-        psHostLookup     = const $ pure $ Just ((PAPort 6781 Nothing, False), error "unused tls certificate")
+        psHostLookup     = const $ pure $ Just ((PAPort 6781 Nothing [], False), error "unused tls certificate")
       , psManager        = manager
       , psUnkownHost     = const ""
       , psMissingHost    = ""
