@@ -1,0 +1,22 @@
+exec: ../hello
+args:
+    - Hello World 1
+host: tealc-mint
+extra-hosts:
+    - pong
+    - www.mysite.com
+    - "*.example.com"
+    - baz.example.com
+static-hosts:
+    - host: foobar
+      root: ..
+    - host: unsafe1
+      root: ../../
+    - host: unsafe2
+      root: /home
+    - host: qux.example.com
+      root: ..
+redirects:
+    - from: mysite.com
+      to: www.mysite.com
+postgres: true
