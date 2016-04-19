@@ -244,7 +244,7 @@ unknownHostResponse host = do
 -- | Get response on unknown host request
 --  Return custom response in this search order
 --   1. Search {host}.html in /opt/keter/incoming
---   2. Search default.html in /opt/keter/incoming
+--   2. Search anyHost.html in /opt/keter/incoming
 --   3. Default "Welcome to keter" page
 --  Template can use placeholder #{HOST_NAME} that'll be replaced with the requested host
 getBundleResponse :: ByteString -> IO Text
