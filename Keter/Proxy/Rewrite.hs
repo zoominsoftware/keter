@@ -1,14 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 module Keter.Proxy.Rewrite
-  -- ( RewritePath (..)
-  -- , MatchType (..)
-  -- , rewrite
-  -- , rewritePathParts
-  -- , rewritePathRule
+  ( RewritePath (..)
+  , MatchType (..)
+  , rewrite
+  , rewritePathParts
+  , rewritePathRule
   -- , mergeQueries
-  -- , checkRegexVars
-  -- )
+  , checkRegexVars
+  )
   where
 
 import           Control.Applicative         ((<$>), (<|>))
@@ -19,7 +19,7 @@ import           Text.Read                   (readMaybe)
 
 import           Data.Aeson
 import           Data.Array                  (bounds, (!))
-import qualified Data.Map                    as Map
+-- import qualified Data.Map                    as Map
 
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Char8       as BSC
@@ -35,11 +35,11 @@ import           Text.Regex.TDFA             (MatchText, makeRegex,
 import           Text.Regex.TDFA.Common      (Regex (..))
 
 -- Reverse proxy apparatus
-import           Network.HTTP.Types
+-- import           Network.HTTP.Types
 import           Network.URI                 (URI (..), nullURI,
                                               parseRelativeReference)
 
-import Debug.Trace
+-- import Debug.Trace
 
 getGroup :: MatchText String -> Int -> String
 getGroup matches i = fst $ matches ! i
@@ -180,10 +180,13 @@ rewritePathRule (x:xs) uri@URI{..} = regexPath x <|> rewritePathRule xs uri
   where
     regexPath RewritePath{..} =
       case pathMatchType of
-        HostPath      -> mergeQueries uri <$> goH  (show uriHostPath)
-        HostPathQuery -> mergeQueries uri <$> goH  (show uriHostPathQuery)
-        PathQuery     -> mergeQueries uri <$> goPQ (show uriPathQuery)
-        PathOnly      ->                      goP        uriPath
+        -- HostPath      -> mergeQueries uri <$> goH  (show uriHostPath)
+        -- HostPathQuery -> mergeQueries uri <$> goH  (show uriHostPathQuery)
+        -- PathQuery     -> mergeQueries uri <$> goPQ (show uriPathQuery)
+        HostPath      -> goH  (show uriHostPath)
+        HostPathQuery -> goH  (show uriHostPathQuery)
+        PathQuery     -> goPQ (show uriPathQuery)
+        PathOnly      -> goP        uriPath
       where
         goP  sMatch = (\p -> uri{uriPath = subst uriPath p}) <$> doMatch sMatch
         goH  sMatch = doMatch sMatch >>= parseRelativeReference . subst sMatch
@@ -197,18 +200,18 @@ rewritePathRule (x:xs) uri@URI{..} = regexPath x <|> rewritePathRule xs uri
 
         subst sMatch match = T.unpack $ rewrite '$' match sMatch pathReplacement
 
-dbg :: (Show a) => String -> a -> a
-dbg s x = trace ("(" <> s <> ": " <> show x <> ")") x
+-- dbg :: (Show a) => String -> a -> a
+-- dbg s x = trace ("(" <> s <> ": " <> show x <> ")") x
 
 -- | Merge two queries. Keep NEW query item, and remove OLD query item, if both exist.
-mergeQueries :: URI -> URI -> URI
-mergeQueries old new = new -- {uriQuery = BSC.unpack (dbg "QUERY RET" mkQuery)}
-  where
-    mkQuery = renderSimpleQuery True . Map.toList
-               $ queryToMap (dbg "NEW" new) `Map.union` queryToMap (dbg "OLD" old)
-    queryToMap = foldr go Map.empty . parseSimpleQuery . BSC.pack . uriQuery
-      where
-        go (key,value) = Map.insert key value
+-- mergeQueries :: URI -> URI -> URI
+-- mergeQueries old new = new -- {uriQuery = BSC.unpack (dbg "QUERY RET" mkQuery)}
+  -- where
+  --   mkQuery = renderSimpleQuery True . Map.toList
+  --              $ queryToMap (dbg "NEW" new) `Map.union` queryToMap (dbg "OLD" old)
+  --   queryToMap = foldr go Map.empty . parseSimpleQuery . BSC.pack . uriQuery
+  --     where
+  --       go (key,value) = Map.insert key value
 
 
 -- | Check if rewrite rules fall inside regex bopunds
@@ -218,12 +221,12 @@ checkRegexVars PathRegex{..} s = all (\i -> mn <= i && i <= mx) $ listVars s
     (mn,mx)     = bounds $ regex_groups unPathRegex
     listVars xs = mapMaybe (readMaybe . takeWhile isDigit) $ splitOn "$" xs
 
-f2 :: IO ()
-f2 = do
-  let oldQS = nullURI{uriQuery="?qs1=1&chngQ=origValue"}
-      newQS = nullURI{uriQuery="?qs2=3&qs3=&chngQ=rewValue"}
-      uq = uriQuery (mergeQueries oldQS newQS)
-  -- "?chngQ=rewValue&qs1=1&qs2=3&qs3="
-  print oldQS
-  print newQS
-  print uq
+-- f2 :: IO ()
+-- f2 = do
+--   let oldQS = nullURI{uriQuery="?qs1=1&chngQ=origValue"}
+--       newQS = nullURI{uriQuery="?qs2=3&qs3=&chngQ=rewValue"}
+--       uq = uriQuery (mergeQueries oldQS newQS)
+--   -- "?chngQ=rewValue&qs1=1&qs2=3&qs3="
+--   print oldQS
+--   print newQS
+--   print uq

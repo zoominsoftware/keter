@@ -8,8 +8,7 @@ module Keter.Proxy
     ( reverseProxy
     , HostLookup
     , TLSConfig (..)
-
-      , f1
+      -- , f1
     ) where
 
 import           Blaze.ByteString.Builder          (copyByteString)
@@ -53,7 +52,7 @@ import           Network.Wai.Middleware.Gzip       (gzip)
 import           Prelude                           hiding (FilePath, (++))
 import           WaiAppStatic.Listing              (defaultListing)
 
-import Debug.Trace
+-- import Debug.Trace
 
 -- | Mapping from virtual hostname to port number.
 type HostLookup = ByteString -> IO (Maybe ProxyAction)
@@ -147,15 +146,17 @@ withClient isSecure useHeader bound manager hostLookup =
             , redirconfigActions = V.singleton $ RedirectAction SPAny
                                  $ RDPrefix True host' Nothing
             }
-    dbg :: (Show a) => String -> a -> a
-    dbg s x = trace ("(" <> s <> ": " <> show x <> ")") x
+    -- dbg :: (Show a) => String -> a -> a
+    -- dbg s x = trace ("(" <> s <> ": " <> show x <> ")") x
 
     performAction req (PAPort port tbound rules) =
         return (addjustGlobalBound tbound, WPRModifiedRequest req' $ ProxyDest "127.0.0.1" port)
       where
         mRew = rewritePathParts rules
-                 (dbg "req" $ Wai.rawPathInfo req, dbg "qs" $ Wai.rawQueryString req)
-        req' = case dbg "mrew" mRew of
+        --          (dbg "req" $ Wai.rawPathInfo req, dbg "qs" $ Wai.rawQueryString req)
+        -- req' = case dbg "mrew" mRew of
+                 (Wai.rawPathInfo req, Wai.rawQueryString req)
+        req' = case mRew of
           Nothing -> req
             { Wai.requestHeaders = ("X-Forwarded-Proto", protocol)
                                  : Wai.requestHeaders req
@@ -268,7 +269,7 @@ getBundleResponse host' =
                , "is not recognized.</p></body></html>"]
 
 
-f1 :: IO ()
-f1 = do
-  e <- getBundleResponse "pero"
-  print e
+-- f1 :: IO ()
+-- f1 = do
+--   e <- getBundleResponse "pero"
+--   print e
