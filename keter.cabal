@@ -44,7 +44,9 @@ Library
                      , data-default
                      , filepath
                      , zlib
+                     , split
                      , network
+                     , network-uri
                      , time
                      , tar                       >= 0.4
                      , template-haskell
@@ -99,6 +101,7 @@ Library
                        Keter.Main
                        Keter.PortPool
                        Keter.Proxy
+                       Keter.Proxy.Rewrite
                        Keter.HostManager
                        Network.HTTP.ReverseProxy.Rewrite
                        Data.Yaml.FilePath

@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TupleSections   #-}
@@ -25,10 +26,11 @@ import           Network.Wai.Middleware.Gzip       (def)
 #else
 import           Data.Default                      (Default (..))
 #endif
-import           Data.Monoid                       (mappend, mempty)
+import           Data.Monoid                       ((<>), mempty)
 import           Data.Text.Encoding                (decodeUtf8With, encodeUtf8)
 import           Data.Text.Encoding.Error          (lenientDecode)
 import qualified Data.Vector                       as V
+import           Keter.Proxy.Rewrite
 import           Keter.Types
 import           Keter.Types.Middleware
 import           Network.HTTP.Conduit              (Manager)
@@ -211,12 +213,21 @@ withClient isSecure MkProxySettings {..} =
             , redirconfigSsl = SSLTrue
             }
 
-    performAction req (PAPort port tbound) =
+    performAction req (PAPort port tbound rules) =
         return (addjustGlobalBound tbound, WPRModifiedRequest req' $ ProxyDest "127.0.0.1" port)
       where
-        req' = req
+        mRew = rewritePathParts rules
+                 (Wai.rawPathInfo req, Wai.rawQueryString req)
+        req' = case mRew of
+          Nothing -> req
             { Wai.requestHeaders = ("X-Forwarded-Proto", protocol)
                                  : Wai.requestHeaders req
+            }
+          Just (path, query) -> req
+            { Wai.requestHeaders = ("X-Forwarded-Proto", protocol)
+                                 : Wai.requestHeaders req
+            , Wai.rawPathInfo = path
+            , Wai.rawQueryString = query
             }
     performAction _ (PAStatic StaticFilesConfig {..}) =
         return (addjustGlobalBound sfconfigTimeout, WPRApplication $ processMiddleware sfconfigMiddleware $ staticApp (defaultFileServerSettings sfconfigRoot)
