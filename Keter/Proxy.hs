@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TupleSections   #-}
@@ -9,16 +10,20 @@ module Keter.Proxy
     ) where
 
 import           Blaze.ByteString.Builder          (copyByteString)
-import           Control.Applicative               ((<|>))
+import           Control.Applicative               ((<|>), (<$>))
+import           Control.Exception                 (catch)
 import           Control.Monad.IO.Class            (liftIO)
 import qualified Data.ByteString                   as S
 import qualified Data.ByteString.Char8             as S8
 import qualified Data.CaseInsensitive              as CI
 import           Data.Default                      (Default (..))
-import           Data.Monoid                       (mappend, mempty)
+import           Data.Monoid                       ((<>), mempty)
+import           Data.Text                         as T
 import           Data.Text.Encoding                (decodeUtf8With, encodeUtf8)
 import           Data.Text.Encoding.Error          (lenientDecode)
+import           Data.Text.IO                      as TIO
 import qualified Data.Vector                       as V
+import           Keter.Proxy.Rewrite
 import           Keter.Types
 import           Keter.Types.Middleware
 import           Network.HTTP.Conduit              (Manager)
@@ -135,12 +140,21 @@ withClient isSecure useHeader bound manager hostLookup =
                                  $ RDPrefix True host' Nothing
             }
 
-    performAction req (PAPort port tbound) =
+    performAction req (PAPort port tbound rules) =
         return (addjustGlobalBound tbound, WPRModifiedRequest req' $ ProxyDest "127.0.0.1" port)
       where
-        req' = req
+        mRew = rewritePathParts rules
+                 (Wai.rawPathInfo req, Wai.rawQueryString req)
+        req' = case mRew of
+          Nothing -> req
             { Wai.requestHeaders = ("X-Forwarded-Proto", protocol)
                                  : Wai.requestHeaders req
+            }
+          Just (path, query) -> req
+            { Wai.requestHeaders = ("X-Forwarded-Proto", protocol)
+                                 : Wai.requestHeaders req
+            , Wai.rawPathInfo = path
+            , Wai.rawQueryString = query
             }
     performAction _ (PAStatic StaticFilesConfig {..}) =
         return (addjustGlobalBound sfconfigTimeout, WPRApplication $ processMiddleware sfconfigMiddleware $ staticApp (defaultFileServerSettings sfconfigRoot)

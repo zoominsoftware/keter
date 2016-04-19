@@ -3,6 +3,8 @@ NAME=keter
 VER=1.3.6
 export PATH=$PATH:/var/lib/gems/1.8/bin
 FPM=$(which fpm)
+STACK=$(which stack)
+CABAL=$(which cabal)
 
 set -e
 
@@ -13,19 +15,44 @@ if [[ -z "$FPM" ]]; then
     FPM=$(which fpm)
 fi
 
-# ensure keter is there, otherwise install.
-if [[ ! -f .cabal-sandbox/bin/$NAME ]]; then
-    cabal sandbox init
-    cabal update
-    cabal install ..
+# Build project
+# Make sure either stack or cabal is present.
+if [[ ! -x "$STACK" ]]; then
+    if [[ ! -x "$CABAL" ]]; then
+        echo "Error: You need either cabal or stack"
+        exit
+    else
+        if [[ ! -f $($CABAL exec which $NAME) ]]; then
+            echo Building using cabal sandboxes...
+            $CABAL sandbox init
+            $CABAL update
+            $CABAL install ..
+            echo done
+        fi
+    fi
+else
+    if [[ ! -f $($STACK exec which $NAME) ]]; then
+        echo Building using stack...
+        $STACK build
+        echo done
+    fi
 fi
 
 # make folder structure
 mkdir -p $NAME-$VER/{bin,etc,init/sysv,init/upstart,var/run/keter}
 mkdir -p $NAME-$VER/var/www/keter/{incoming,log,temp}
 
-# copy the keter bin into /bin
-cp .cabal-sandbox/bin/$NAME $NAME-$VER/bin/
+# copy the keter binary into /bin
+if [[ -f $($STACK exec which $NAME) ]]; then
+    cp $($STACK exec which $NAME) $NAME-$VER/bin/
+else
+    if [[ -f $($CABAL exec which $NAME) ]]; then
+        cp $($CABAL exec which $NAME) $NAME-$VER/bin/
+    else
+        echo Error: Something went wrong. Could not find the built executable.
+        exit
+    fi
+fi
 
 cd $NAME-$VER
 # copy over scripts if missing
