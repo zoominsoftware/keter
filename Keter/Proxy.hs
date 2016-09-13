@@ -57,7 +57,7 @@ reverseProxy :: Bool
 reverseProxy useHeader timeBound manager hostLookup listener =
     run $ gzip def $ withClient isSecure useHeader timeBound manager hostLookup
   where
-    warp host port = Warp.setHost host $ Warp.setPort port Warp.defaultSettings
+    warp host port = Warp.setHTTP2Disabled . Warp.setHost host $ Warp.setPort port Warp.defaultSettings
     (run, isSecure) =
         case listener of
             LPInsecure host port -> (Warp.runSettings (warp host port), False)
