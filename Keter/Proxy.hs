@@ -19,7 +19,7 @@ import qualified Data.ByteString                   as S
 import qualified Data.ByteString.Char8             as S8
 import qualified Data.CaseInsensitive              as CI
 import           Data.Default                      (Default (..))
--- import           Data.Monoid                       (mappend, mempty,(<>))
+-- import           Data.Maybe                        (isJust)
 import           Data.Monoid                       (mempty,(<>))
 import           Data.Text                         as T
 import           Data.Text.Encoding                (decodeUtf8With, encodeUtf8)
@@ -52,7 +52,9 @@ import           Network.Wai.Middleware.Gzip       (gzip)
 import           Prelude                           hiding (FilePath, (++))
 import           WaiAppStatic.Listing              (defaultListing)
 
--- import Debug.Trace
+import Debug.Trace
+dbg :: (Show a) => String -> a -> a
+dbg s x = trace ("(" <> s <> ": " <> show x <> ")") x
 
 -- | Mapping from virtual hostname to port number.
 type HostLookup = ByteString -> IO (Maybe ProxyAction)
@@ -132,9 +134,15 @@ withClient isSecure useHeader bound manager hostLookup =
             Nothing -> do
               (def, ) . WPRResponse <$> unknownHostResponse host
               -- return (def, WPRResponse $ unknownHostResponse host)
+            Just (action@(PAPort _port _tbound rules),_requiresSecure) -> do
+              print $ "HOST: " <> show host
+              -- print $ "MPORT: " <> show mport
+              case rewritePathParts rules (Wai.rawPathInfo req, Wai.rawQueryString req) of
+                Nothing  -> performAction req action
+                Just rew -> performRedirect host req rew
             Just (action, requiresSecure)
                 | requiresSecure && not isSecure -> performHttpsRedirect host req
-                | otherwise -> performAction req action
+                | otherwise                      -> performAction req action
 
     performHttpsRedirect host =
         return . (addjustGlobalBound Nothing,) . WPRResponse . redirectApp config
@@ -146,45 +154,56 @@ withClient isSecure useHeader bound manager hostLookup =
             , redirconfigActions = V.singleton $ RedirectAction SPAny
                                  $ RDPrefix True host' Nothing
             }
-    -- dbg :: (Show a) => String -> a -> a
-    -- dbg s x = trace ("(" <> s <> ": " <> show x <> ")") x
 
-    performAction req (PAPort port tbound rules) =
+    performRedirect host req (path, query) = do
+        print $ "Host2: " <> show host
+        let config = RedirectConfig
+                     { redirconfigHosts = mempty
+                     , redirconfigStatus = 301
+                     , redirconfigActions =
+                       -- error "QQQ"
+                         V.singleton . RedirectAction SPAny
+                                            $ RDUrl (decodeUtf8With lenientDecode path)
+                       --                      $ RDPrefix False host' Nothing
+                     }
+            req' = req
+                  { Wai.requestHeaders = ("X-Forwarded-Proto", protocol) : Wai.requestHeaders req
+                  , Wai.rawPathInfo = path
+                  , Wai.rawQueryString = query
+                  }
+            host' = dbg "CI" $ CI.mk $ decodeUtf8With lenientDecode host
+        return . (addjustGlobalBound Nothing,) . WPRResponse $ redirectApp config req'
+
+    performAction req (PAPort port tbound _rules) = do
+        print "In PORT"
+        let req' = req { Wai.requestHeaders = ("X-Forwarded-Proto", protocol)
+                                              : Wai.requestHeaders req
+                       }
         return (addjustGlobalBound tbound, WPRModifiedRequest req' $ ProxyDest "127.0.0.1" port)
-      where
-        mRew = rewritePathParts rules
-        --          (dbg "req" $ Wai.rawPathInfo req, dbg "qs" $ Wai.rawQueryString req)
-        -- req' = case dbg "mrew" mRew of
-                 (Wai.rawPathInfo req, Wai.rawQueryString req)
-        req' = case mRew of
-          Nothing -> req
-            { Wai.requestHeaders = ("X-Forwarded-Proto", protocol)
-                                 : Wai.requestHeaders req
-            }
-          Just (path, query) -> req
-            { Wai.requestHeaders = ("X-Forwarded-Proto", protocol)
-                                 : Wai.requestHeaders req
-            , Wai.rawPathInfo = path
-            , Wai.rawQueryString = query
-            }
-    performAction _ (PAStatic StaticFilesConfig {..}) =
+
+    performAction _ (PAStatic StaticFilesConfig {..}) = do
+        print "In STATIC"
         return (addjustGlobalBound sfconfigTimeout, WPRApplication $ processMiddleware sfconfigMiddleware $ staticApp (defaultFileServerSettings sfconfigRoot)
             { ssListing =
                 if sfconfigListings
                     then Just defaultListing
                     else Nothing
             })
-    performAction req (PARedirect config) = return (addjustGlobalBound Nothing, WPRResponse $ redirectApp config req)
-    performAction _ (PAReverseProxy config rpconfigMiddleware tbound) =
+    performAction req (PARedirect config) = do
+      print "In REDIRECT"
+      return (addjustGlobalBound Nothing, WPRResponse $ redirectApp config req)
+    performAction _ (PAReverseProxy config rpconfigMiddleware tbound) = do
+       print "In REVERSE"
+      
        return (addjustGlobalBound tbound, WPRApplication $ processMiddleware rpconfigMiddleware $ Rewrite.simpleReverseProxy manager config)
 
 redirectApp :: RedirectConfig -> Wai.Request -> Wai.Response
 redirectApp RedirectConfig {..} req =
     V.foldr checkAction noAction redirconfigActions
   where
-    checkAction (RedirectAction SPAny dest) _ = sendTo $ mkUrl dest
+    checkAction (RedirectAction SPAny dest) _ = sendTo $ dbg "URL1" $ mkUrl dest
     checkAction (RedirectAction (SPSpecific path) dest) other
-        | encodeUtf8 path == Wai.rawPathInfo req = sendTo $ mkUrl dest
+        | encodeUtf8 path == Wai.rawPathInfo req = sendTo $ dbg "URL2" $ mkUrl dest
         | otherwise = other
 
     noAction = Wai.responseBuilder
@@ -194,7 +213,7 @@ redirectApp RedirectConfig {..} req =
 
     sendTo url = Wai.responseBuilder
         status
-        [("Location", url)]
+        [("Location", dbg "LOC" url)]
         (copyByteString url)
 
     status =

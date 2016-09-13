@@ -92,7 +92,8 @@ toMiddleware Jsonp              = jsonp
 toMiddleware (Local s c )       = local ( responseLBS (toEnum s) [] c )
 toMiddleware MethodOverride     = methodOverride
 toMiddleware MethodOverridePost = methodOverridePost
-toMiddleware (BasicAuth realm cred) = basicAuth (\u p -> return $ maybe False (==p) $ lookup u cred ) (fromString realm)
+-- toMiddleware (BasicAuth realm cred) = basicAuth (\u p -> return $ maybe False (==p) $ lookup u cred ) (fromString realm)
+toMiddleware (BasicAuth realm cred) = basicAuth (\u p -> return False) (fromString realm)
 toMiddleware (AddHeaders headers)   = addHeaders headers
 
 -- composeMiddleware :

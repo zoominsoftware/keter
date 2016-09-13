@@ -92,6 +92,7 @@ Library
                        Codec.Archive.TempTarball
                        Data.Conduit.LogFile
                        Data.Conduit.Process.Unix
+                       Debug
   ghc-options:         -Wall
   c-sources:           cbits/process-tracker.c
 

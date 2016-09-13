@@ -6,7 +6,6 @@ module Keter.Proxy.Rewrite
   , rewrite
   , rewritePathParts
   , rewritePathRule
-  -- , mergeQueries
   , checkRegexVars
   )
   where
@@ -146,6 +145,7 @@ rewritePathParts rules (path, query) = mkPair <$> mUri
               , uriQuery     = BSC.unpack query
               }
 
+      
 -- | Match URI with RewritePath rules and rewrite URL
 --   Rules are matched as "first-match-wins"
 --
@@ -202,16 +202,6 @@ rewritePathRule (x:xs) uri@URI{..} = regexPath x <|> rewritePathRule xs uri
 
 -- dbg :: (Show a) => String -> a -> a
 -- dbg s x = trace ("(" <> s <> ": " <> show x <> ")") x
-
--- | Merge two queries. Keep NEW query item, and remove OLD query item, if both exist.
--- mergeQueries :: URI -> URI -> URI
--- mergeQueries old new = new -- {uriQuery = BSC.unpack (dbg "QUERY RET" mkQuery)}
-  -- where
-  --   mkQuery = renderSimpleQuery True . Map.toList
-  --              $ queryToMap (dbg "NEW" new) `Map.union` queryToMap (dbg "OLD" old)
-  --   queryToMap = foldr go Map.empty . parseSimpleQuery . BSC.pack . uriQuery
-  --     where
-  --       go (key,value) = Map.insert key value
 
 
 -- | Check if rewrite rules fall inside regex bopunds
