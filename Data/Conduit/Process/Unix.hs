@@ -216,6 +216,11 @@ forkExecuteLog cmd args menv mwdir mstdin rlog = bracketOnError
 #if MIN_VERSION_process(1, 2, 0)
             , delegate_ctlc = False
 #endif
+            , detach_console     = False
+            , create_new_console = False
+            , new_session        = False
+            , child_group        = Nothing
+            , child_user         = Nothing
             }
         ignoreExceptions $ addAttachMessage pipes ph
         void $ forkIO $ ignoreExceptions $
