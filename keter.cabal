@@ -1,5 +1,5 @@
 Name:                keter
-Version:             1.4.3.1.99
+Version:             1.4.3.1.100
 Synopsis:            Web application deployment manager, focusing on Haskell web frameworks
 Description:         Hackage documentation generation is not reliable. For up to date documentation, please see: <http://www.stackage.org/package/keter>.
 Homepage:            http://www.yesodweb.com/
@@ -50,12 +50,12 @@ Library
                      , http-types
                      , regex-tdfa                >= 1.1
                      , attoparsec                >= 0.10
-                     , http-client
+                     , http-client               >= 0.5
                      , http-conduit              >= 2.1
                      , case-insensitive
                      , array
                      , mtl
-                     , warp
+                     , warp                      >= 3.1.7
                      , warp-tls                  >= 3.0.3
                      , aeson
                      , unordered-containers

@@ -88,7 +88,7 @@ mkRuleMap = Map.fromList . map (\k -> (CI.mk . encodeUtf8 $ ruleHeader k, k)) . 
 
 mkRequest :: ReverseProxyConfig -> Wai.Request -> (Request,Maybe URI)
 mkRequest rpConfig request =
-  (def {
+  (defaultRequest {
      method         = Wai.requestMethod request
    , secure         = reverseUseSSL rpConfig
    , host           = BSC.pack host
@@ -102,8 +102,7 @@ mkRequest rpConfig request =
          Wai.KnownLength n -> RequestBodyStream (fromIntegral n) ($ Wai.requestBody request)
    , decompress      = const False
    , redirectCount   = 10 -- FIXMEE: Why is this reduced to 0 from default 10???
-   , checkStatus     = \_ _ _ -> Nothing
-   , responseTimeout = reverseTimeout rpConfig
+   , responseTimeout = NHC.responseTimeoutNone
    , cookieJar       = Nothing
    }
   , mkURI)
