@@ -50,12 +50,12 @@ Library
                      , http-types
                      , regex-tdfa                >= 1.1
                      , attoparsec                >= 0.10
-                     , http-client
+                     , http-client               >= 0.5
                      , http-conduit              >= 2.1
                      , case-insensitive
                      , array
                      , mtl
-                     , warp
+                     , warp                      >= 3.1.7
                      , warp-tls                  >= 3.0.3
                      , aeson
                      , unordered-containers
