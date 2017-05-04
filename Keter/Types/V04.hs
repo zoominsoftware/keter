@@ -80,6 +80,7 @@ data KeterConfig = KeterConfig
     , kconfigReverseProxy        :: Set ReverseProxyConfig
     , kconfigIpFromHeader        :: Bool
     , kconfigConnectionTimeBound :: Int
+    , kconfigUnknownHostStatus   :: Int
     -- ^ Maximum request time in milliseconds per connection.
     }
 
@@ -94,6 +95,7 @@ instance Default KeterConfig where
         , kconfigReverseProxy = Set.empty
         , kconfigIpFromHeader = False
         , kconfigConnectionTimeBound = fiveMinutes
+        , kconfigUnknownHostStatus = 200
         }
 
 
@@ -112,6 +114,7 @@ instance ParseYamlFile KeterConfig where
         <*> o .:? "reverse-proxy" .!= Set.empty
         <*> o .:? "ip-from-header" .!= False
         <*> o .:? "connection-time-bound" .!= fiveMinutes
+        <*> o .:? "unknown-host-status" .!= 200
 
 data TLSConfig = TLSConfig !Warp.Settings !WarpTLS.TLSSettings
 

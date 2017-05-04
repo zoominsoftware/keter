@@ -1,57 +1,46 @@
-{-# LANGUAGE CPP                 #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE RecordWildCards     #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE CPP, OverloadedStrings, RankNTypes, RecordWildCards, ScopedTypeVariables,
+             TemplateHaskell #-}
 module Keter.Main
     ( keter
     ) where
 
 import qualified Codec.Archive.TempTarball as TempFolder
+import           Control.Applicative       ((<$>))
 import           Control.Concurrent.Async  (waitAny, withAsync)
-import           Control.Monad             (unless)
+import           Control.Exception         (throwIO, try)
+import           Control.Monad             (forM, unless, when, void)
 import qualified Data.CaseInsensitive      as CI
 import qualified Data.Conduit.LogFile      as LogFile
+import           Data.Conduit.Process.Unix (initProcessTracker)
+import           Data.Default              (def)
+import qualified Data.Map                  as Map
 import           Data.Monoid               (mempty)
 import           Data.String               (fromString)
+import qualified Data.Text                 as T
+import           Data.Text.Encoding        (encodeUtf8)
+import qualified Data.Text.Read
+import           Data.Time                 (getCurrentTime)
 import qualified Data.Vector               as V
-import           Keter.App                 (AppStartConfig (..))
+import           Data.Yaml.FilePath
+import           Keter.App                 (AppStartConfig(..))
 import qualified Keter.AppManager          as AppMan
 import qualified Keter.HostManager         as HostMan
 import qualified Keter.PortPool            as PortPool
 import qualified Keter.Proxy               as Proxy
 import           Keter.Types
-import           System.Posix.Files        (getFileStatus, modificationTime)
-import           System.Posix.Signals      (Handler (Catch), installHandler,
-                                            sigHUP)
-
-import           Control.Applicative       ((<$>))
-import           Control.Exception         (throwIO, try)
-import           Control.Monad             (forM)
-import           Control.Monad             (void, when)
-import           Data.Conduit.Process.Unix (initProcessTracker)
-import           Data.Default              (def)
-import qualified Data.Map                  as Map
-import qualified Data.Text                 as T
-import           Data.Text.Encoding        (encodeUtf8)
-import qualified Data.Text.Read
-import           Data.Time                 (getCurrentTime)
-import           Data.Yaml.FilePath
-import qualified Network.HTTP.Conduit      as HTTP (tlsManagerSettings,
-                                                    newManager)
+import qualified Network.HTTP.Conduit      as HTTP (newManager, tlsManagerSettings)
 import           Prelude                   hiding (FilePath, log)
 import           System.Directory          (createDirectoryIfMissing,
-                                            createDirectoryIfMissing,
-                                            doesDirectoryExist, doesFileExist,
-                                            getDirectoryContents)
+                                           createDirectoryIfMissing, doesDirectoryExist,
+                                           doesFileExist, getDirectoryContents)
 import           System.FilePath           (takeExtension, (</>))
 import qualified System.FSNotify           as FSN
-import           System.Posix.User         (getUserEntryForID,
-                                            getUserEntryForName, userGroupID,
-                                            userID, userName)
+import           System.Posix.Files        (getFileStatus, modificationTime)
+import           System.Posix.Signals      (Handler(Catch), installHandler, sigHUP)
+import           System.Posix.User         (getUserEntryForID, getUserEntryForName,
+                                           userGroupID, userID, userName)
 #ifdef SYSTEM_FILEPATH
-import qualified Filesystem.Path as FP (FilePath)
+import qualified Filesystem.Path           as FP (FilePath)
 import           Filesystem.Path.CurrentOS (encodeString)
 #endif
 
@@ -75,7 +64,7 @@ withConfig input f = do
             then do
                 eres <- decodeFileRelative input
                 case eres of
-                    Left e -> throwIO $ InvalidKeterConfigFile input e
+                    Left e  -> throwIO $ InvalidKeterConfigFile input e
                     Right x -> return x
             else return def { kconfigDir = input }
     f config
@@ -115,7 +104,7 @@ withManagers input mkPlugins f = withLogger input $ \kc@KeterConfig {..} log -> 
                 x <- try $
                     case Data.Text.Read.decimal t of
                         Right (i, "") -> getUserEntryForID i
-                        _ -> getUserEntryForName $ T.unpack t
+                        _             -> getUserEntryForName $ T.unpack t
                 case x of
                     Left (_ :: SomeException) -> error $ "Invalid user ID: " ++ T.unpack t
                     Right ue -> return $ Just (T.pack $ userName ue, (userID ue, userGroupID ue))
@@ -169,7 +158,7 @@ startWatching kc@KeterConfig {..} appMan log = do
                     log $ WatchedFile "modified" (fromFilePath fp)
                     return $ Right $ fromFilePath fp
         case e' of
-            Left fp -> when (isKeter fp) $ AppMan.terminateApp appMan $ getAppname fp
+            Left fp  -> when (isKeter fp) $ AppMan.terminateApp appMan $ getAppname fp
             Right fp -> when (isKeter fp) $ AppMan.addApp appMan $ incoming </> fp
 
     -- Install HUP handler for cases when inotify cannot be used.
@@ -216,6 +205,7 @@ startListening KeterConfig {..} hostman = do
         (kconfigConnectionTimeBound * 1000)
         manager
         (HostMan.lookupAction hostman . CI.mk)
+        kconfigUnknownHostStatus
 
 runAndBlock :: NonEmptyVector a
             -> (a -> IO ())
@@ -228,4 +218,4 @@ runAndBlock (NonEmptyVector x0 v) f =
     loop (x:xs) asyncs = withAsync (f x) $ \async -> loop xs $ async : asyncs
     -- Once we have all of our asyncs, we wait for /any/ of them to exit. If
     -- any listener thread exits, we kill the whole process.
-    loop [] asyncs = void $ waitAny asyncs
+    loop [] asyncs     = void $ waitAny asyncs

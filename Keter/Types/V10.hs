@@ -104,11 +104,23 @@ data KeterConfig = KeterConfig
     -- ^ Environment variables to be passed to all apps.
     , kconfigConnectionTimeBound :: !Int
     -- ^ Maximum request time in milliseconds per connection.
+    , kconfigUnknownHostStatus   :: !Int
+    -- ^ HTTP status to return when host is not recognized.
     }
 
 instance ToCurrent KeterConfig where
     type Previous KeterConfig = V04.KeterConfig
-    toCurrent (V04.KeterConfig dir portman host port ssl setuid rproxy ipFromHeader connectionTimeBound) = KeterConfig
+    toCurrent (V04.KeterConfig dir
+                               portman
+                               host
+                               port
+                               ssl
+                               setuid
+                               rproxy
+                               ipFromHeader
+                               connectionTimeBound
+                               unknownHostStatus
+              ) = KeterConfig
         { kconfigDir = dir
         , kconfigPortPool = portman
         , kconfigListeners = NonEmptyVector (LPInsecure host port) (getSSL ssl)
@@ -119,6 +131,7 @@ instance ToCurrent KeterConfig where
         , kconfigExternalHttpsPort = 443
         , kconfigEnvironment = Map.empty
         , kconfigConnectionTimeBound = connectionTimeBound
+        , kconfigUnknownHostStatus = unknownHostStatus
         }
       where
         getSSL Nothing = V.empty
@@ -141,6 +154,7 @@ instance Default KeterConfig where
         , kconfigExternalHttpsPort = 443
         , kconfigEnvironment = Map.empty
         , kconfigConnectionTimeBound = V04.fiveMinutes
+        , kconfigUnknownHostStatus = 200
         }
 
 instance ParseYamlFile KeterConfig where
@@ -161,6 +175,7 @@ instance ParseYamlFile KeterConfig where
             <*> o .:? "external-https-port" .!= 443
             <*> o .:? "env" .!= Map.empty
             <*> o .:? "connection-time-bound" .!= V04.fiveMinutes
+            <*> o .:? "unknown-host-status" .!= 200
 
 -- | Whether we should force redirect to HTTPS routes.
 type RequiresSecure = Bool
