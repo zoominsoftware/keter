@@ -1,26 +1,20 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TupleSections   #-}
-{-# LANGUAGE LambdaCase   #-}
+{-# LANGUAGE OverloadedStrings, RecordWildCards, ScopedTypeVariables, TupleSections #-}
 -- | A light-weight, minimalistic reverse HTTP proxy.
 module Keter.Proxy
     ( reverseProxy
     , HostLookup
     , TLSConfig (..)
-      -- , f1
     ) where
 
 import           Blaze.ByteString.Builder          (copyByteString)
-import           Control.Applicative               ((<|>),(<$>))
+import           Control.Applicative               ((<$>), (<|>))
 import           Control.Exception                 (catch)
 import           Control.Monad.IO.Class            (liftIO)
 import qualified Data.ByteString                   as S
 import qualified Data.ByteString.Char8             as S8
 import qualified Data.CaseInsensitive              as CI
-import           Data.Default                      (Default (..))
--- import           Data.Monoid                       (mappend, mempty,(<>))
-import           Data.Monoid                       (mempty,(<>))
+import           Data.Default                      (Default(..))
+import           Data.Monoid                       (mempty, (<>))
 import           Data.Text                         as T
 import           Data.Text.Encoding                (decodeUtf8With, encodeUtf8)
 import           Data.Text.Encoding.Error          (lenientDecode)
@@ -30,22 +24,18 @@ import           Keter.Proxy.Rewrite
 import           Keter.Types
 import           Keter.Types.Middleware
 import           Network.HTTP.Conduit              (Manager)
-import           Network.HTTP.ReverseProxy         (ProxyDest (ProxyDest),
-                                                    SetIpHeader (..),
-                                                    WaiProxyResponse (..),
-                                                    LocalWaiProxySettings,
-                                                    setLpsTimeBound,
-                                                    waiProxyToSettings,
-                                                    wpsSetIpHeader,
-                                                    wpsGetDest)
+import           Network.HTTP.ReverseProxy         (LocalWaiProxySettings,
+                                                   ProxyDest(ProxyDest), SetIpHeader(..),
+                                                   WaiProxyResponse(..), setLpsTimeBound,
+                                                   waiProxyToSettings, wpsGetDest,
+                                                   wpsSetIpHeader)
 import qualified Network.HTTP.ReverseProxy.Rewrite as Rewrite
-import           Network.HTTP.Types                (mkStatus, status200,
-                                                    status301, status302,
-                                                    status303, status307,
-                                                    status404)
+import           Network.HTTP.Types                (Status, mkStatus, status200,
+                                                   status301, status302, status303,
+                                                   status307, status404)
 import qualified Network.Wai                       as Wai
-import           Network.Wai.Application.Static    (defaultFileServerSettings,
-                                                    ssListing, staticApp)
+import           Network.Wai.Application.Static    (defaultFileServerSettings, ssListing,
+                                                   staticApp)
 import qualified Network.Wai.Handler.Warp          as Warp
 import qualified Network.Wai.Handler.WarpTLS       as WarpTLS
 import           Network.Wai.Middleware.Gzip       (gzip)
@@ -58,9 +48,10 @@ import           WaiAppStatic.Listing              (defaultListing)
 type HostLookup = ByteString -> IO (Maybe ProxyAction)
 
 reverseProxy :: Bool
-             -> Int -> Manager -> HostLookup -> ListeningPort -> IO ()
-reverseProxy useHeader timeBound manager hostLookup listener =
-    run $ gzip def $ withClient isSecure useHeader timeBound manager hostLookup
+             -> Int -> Manager -> HostLookup-> Status -> ListeningPort -> IO ()
+reverseProxy useHeader timeBound manager hostLookup statusOnUnknown listener =
+    run . gzip def
+      $ withClient isSecure useHeader timeBound manager hostLookup statusOnUnknown
   where
     warp host port = Warp.setHTTP2Disabled . Warp.setHost host $ Warp.setPort port Warp.defaultSettings
     (run, isSecure) =
@@ -78,8 +69,9 @@ withClient :: Bool -- ^ is secure?
            -> Int  -- ^ time bound for connections
            -> Manager
            -> HostLookup
+           -> Status
            -> Wai.Application
-withClient isSecure useHeader bound manager hostLookup =
+withClient isSecure useHeader bound manager hostLookup statusOnUnknown =
     waiProxyToSettings
        (error "First argument to waiProxyToSettings forced, even thought wpsGetDest provided")
        def
@@ -107,12 +99,12 @@ withClient isSecure useHeader bound manager hostLookup =
       where
         go = case to <|> Just bound of
                Just x | x > 0 -> Just x
-               _              -> Nothing
+               _      -> Nothing
 
     getDest :: Wai.Request -> IO (LocalWaiProxySettings, WaiProxyResponse)
     getDest req =
         case Wai.requestHeaderHost req of
-            Nothing -> return (def, WPRResponse missingHostResponse)
+            Nothing   -> return (def, WPRResponse missingHostResponse)
             Just host -> processHost req host
 
     processHost :: Wai.Request -> S.ByteString -> IO (LocalWaiProxySettings, WaiProxyResponse)
@@ -130,8 +122,7 @@ withClient isSecure useHeader bound manager hostLookup =
                         else hostLookup host'
         case mport of
             Nothing -> do
-              (def, ) . WPRResponse <$> unknownHostResponse host
-              -- return (def, WPRResponse $ unknownHostResponse host)
+              (def, ) . WPRResponse <$> unknownHostResponse host statusOnUnknown
             Just (action, requiresSecure)
                 | requiresSecure && not isSecure -> performHttpsRedirect host req
                 | otherwise -> performAction req action
@@ -146,15 +137,11 @@ withClient isSecure useHeader bound manager hostLookup =
             , redirconfigActions = V.singleton $ RedirectAction SPAny
                                  $ RDPrefix True host' Nothing
             }
-    -- dbg :: (Show a) => String -> a -> a
-    -- dbg s x = trace ("(" <> s <> ": " <> show x <> ")") x
 
     performAction req (PAPort port tbound rules) =
         return (addjustGlobalBound tbound, WPRModifiedRequest req' $ ProxyDest "127.0.0.1" port)
       where
         mRew = rewritePathParts rules
-        --          (dbg "req" $ Wai.rawPathInfo req, dbg "qs" $ Wai.rawQueryString req)
-        -- req' = case dbg "mrew" mRew of
                  (Wai.rawPathInfo req, Wai.rawQueryString req)
         req' = case mRew of
           Nothing -> req
@@ -225,18 +212,12 @@ missingHostResponse = Wai.responseBuilder
     [("Content-Type", "text/html; charset=utf-8")]
     $ copyByteString "<!DOCTYPE html>\n<html><head><title>Welcome to Keter</title></head><body><h1>Welcome to Keter</h1><p>You did not provide a virtual hostname for this request.</p></body></html>"
 
--- unknownHostResponse :: ByteString -> Wai.Response
--- unknownHostResponse host = Wai.responseBuilder
---     status200
---     [("Content-Type", "text/html; charset=utf-8")]
---     (copyByteString "<!DOCTYPE html>\n<html><head><title>Welcome to Keter</title></head><body><h1>Welcome to Keter</h1><p>The hostname you have provided, <code>"
---      `mappend` copyByteString host
---      `mappend` copyByteString "</code>, is not recognized.</p></body></html>")
 
-unknownHostResponse  :: ByteString -> IO Wai.Response
-unknownHostResponse host = do
+unknownHostResponse  :: ByteString -> Status -> IO Wai.Response
+unknownHostResponse host statusOnUnknown = do
+  -- let retCode = mkStatus statusOnUnknown "Host not recognized"
   m <- getBundleResponse host
-  return $ Wai.responseBuilder status200
+  return $ Wai.responseBuilder statusOnUnknown
                               [("Content-Type", "text/html; charset=utf-8")]
                               (copyByteString $ encodeUtf8 m)
 
@@ -257,7 +238,6 @@ getBundleResponse host' =
     replaceHost = T.replace "#{HOST_NAME}" host
     getHtml fNm = do
       let fPath = T.unpack $ "/opt/keter/incoming/" <> fNm <> ".html"
-      -- let fPath = T.unpack $ "./" <> fNm <> ".html"
       (Just . replaceHost <$> TIO.readFile fPath)
         `catch` (\(_::SomeException) -> return Nothing)
     stdKeterMsg =
@@ -268,8 +248,3 @@ getBundleResponse host' =
                , "<code>", host, "</code>, "
                , "is not recognized.</p></body></html>"]
 
-
--- f1 :: IO ()
--- f1 = do
---   e <- getBundleResponse "pero"
---   print e
