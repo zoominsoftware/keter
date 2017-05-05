@@ -10,12 +10,13 @@ import           Data.Default
 import qualified Data.Set                          as Set
 import           Data.String                       (fromString)
 import           Data.Yaml.FilePath
-import qualified System.FilePath                   as F
 import           Keter.Types.Common
 import           Network.HTTP.ReverseProxy.Rewrite
+import           Network.HTTP.Types                (Status, mkStatus, status200)
 import qualified Network.Wai.Handler.Warp          as Warp
 import qualified Network.Wai.Handler.WarpTLS       as WarpTLS
 import           Prelude                           hiding (FilePath)
+import qualified System.FilePath                   as F
 
 data AppConfig = AppConfig
     { configExec       :: F.FilePath
@@ -80,7 +81,7 @@ data KeterConfig = KeterConfig
     , kconfigReverseProxy        :: Set ReverseProxyConfig
     , kconfigIpFromHeader        :: Bool
     , kconfigConnectionTimeBound :: Int
-    , kconfigUnknownHostStatus   :: Int
+    , kconfigUnknownHostStatus   :: Status
     -- ^ Maximum request time in milliseconds per connection.
     }
 
@@ -95,7 +96,7 @@ instance Default KeterConfig where
         , kconfigReverseProxy = Set.empty
         , kconfigIpFromHeader = False
         , kconfigConnectionTimeBound = fiveMinutes
-        , kconfigUnknownHostStatus = 200
+        , kconfigUnknownHostStatus = status200
         }
 
 
@@ -114,7 +115,8 @@ instance ParseYamlFile KeterConfig where
         <*> o .:? "reverse-proxy" .!= Set.empty
         <*> o .:? "ip-from-header" .!= False
         <*> o .:? "connection-time-bound" .!= fiveMinutes
-        <*> o .:? "unknown-host-status" .!= 200
+        <*> (flip mkStatus "Keter - Unknown status response"
+               <$> o .:? "unknown-host-status" .!= 200)
 
 data TLSConfig = TLSConfig !Warp.Settings !WarpTLS.TLSSettings
 

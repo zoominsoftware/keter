@@ -1,17 +1,12 @@
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE FlexibleContexts, FlexibleInstances, OverloadedStrings, RecordWildCards,
+             TypeFamilies #-}
 module Keter.Types.V10 where
 
 import           Control.Applicative               ((<$>), (<*>), (<|>))
-import           Data.Aeson                        (Object, ToJSON (..))
-import           Data.Aeson                        (FromJSON (..),
-                                                    Value (Object, String),
-                                                    withObject, (.!=), (.:),
-                                                    (.:?))
-import           Data.Aeson                        (Value (Bool), object, (.=))
+import           Data.Aeson                        (FromJSON(..), Object, ToJSON(..),
+                                                   Value(Object, String), Value(Bool),
+                                                   object, withObject, (.!=), (.:),
+                                                   (.:?), (.=))
 import qualified Data.CaseInsensitive              as CI
 import           Data.Conduit.Network              (HostPreference)
 import           Data.Default
@@ -24,14 +19,15 @@ import           Data.Vector                       (Vector)
 import qualified Data.Vector                       as V
 import           Data.Word                         (Word)
 import           Data.Yaml.FilePath
-import qualified System.FilePath                   as F
+import           Keter.Proxy.Rewrite               (RewritePath)
 import           Keter.Types.Common
 import           Keter.Types.Middleware
 import qualified Keter.Types.V04                   as V04
 import           Network.HTTP.ReverseProxy.Rewrite (ReverseProxyConfig)
+import           Network.HTTP.Types                (Status, mkStatus, status200)
 import qualified Network.Wai.Handler.Warp          as Warp
 import qualified Network.Wai.Handler.WarpTLS       as WarpTLS
-import           Keter.Proxy.Rewrite               (RewritePath)
+import qualified System.FilePath                   as F
 import           System.Posix.Types                (EpochTime)
 
 data BundleConfig = BundleConfig
@@ -50,7 +46,7 @@ instance ToCurrent BundleConfig where
         , bconfigPlugins =
             case webapp >>= HashMap.lookup "postgres" . V04.configRaw of
                 Just (Bool True) -> HashMap.singleton "postgres" (Bool True)
-                _ -> HashMap.empty
+                _                -> HashMap.empty
         }
 
 instance ParseYamlFile BundleConfig where
@@ -104,7 +100,7 @@ data KeterConfig = KeterConfig
     -- ^ Environment variables to be passed to all apps.
     , kconfigConnectionTimeBound :: !Int
     -- ^ Maximum request time in milliseconds per connection.
-    , kconfigUnknownHostStatus   :: !Int
+    , kconfigUnknownHostStatus   :: !Status
     -- ^ HTTP status to return when host is not recognized.
     }
 
@@ -154,13 +150,13 @@ instance Default KeterConfig where
         , kconfigExternalHttpsPort = 443
         , kconfigEnvironment = Map.empty
         , kconfigConnectionTimeBound = V04.fiveMinutes
-        , kconfigUnknownHostStatus = 200
+        , kconfigUnknownHostStatus = status200
         }
 
 instance ParseYamlFile KeterConfig where
     parseYamlFile basedir = withObject "KeterConfig" $ \o ->
         case HashMap.lookup "listeners" o of
-            Just _ -> current o
+            Just _  -> current o
             Nothing -> old o <|> current o
       where
         old o = (toCurrent :: V04.KeterConfig -> KeterConfig) <$> parseYamlFile basedir (Object o)
@@ -175,7 +171,8 @@ instance ParseYamlFile KeterConfig where
             <*> o .:? "external-https-port" .!= 443
             <*> o .:? "env" .!= Map.empty
             <*> o .:? "connection-time-bound" .!= V04.fiveMinutes
-            <*> o .:? "unknown-host-status" .!= 200
+            <*> (flip mkStatus "Keter - Unknown status response"
+                   <$> o .:? "unknown-host-status" .!= 200)
 
 -- | Whether we should force redirect to HTTPS routes.
 type RequiresSecure = Bool
@@ -229,20 +226,20 @@ addRequiresSecure :: ToJSON a => Bool -> a -> Value
 addRequiresSecure rs x =
     case toJSON x of
         Object o -> Object $ HashMap.insert "requires-secure" (toJSON rs) o
-        v -> v
+        v        -> v
 
 instance ToJSON (StanzaRaw ()) where
-    toJSON (StanzaStaticFiles x) = addStanzaType "static-files" x
-    toJSON (StanzaRedirect x) = addStanzaType "redirect" x
-    toJSON (StanzaWebApp x) = addStanzaType "webapp" x
+    toJSON (StanzaStaticFiles x)      = addStanzaType "static-files" x
+    toJSON (StanzaRedirect x)         = addStanzaType "redirect" x
+    toJSON (StanzaWebApp x)           = addStanzaType "webapp" x
     toJSON (StanzaReverseProxy x _ _) = addStanzaType "reverse-proxy" x
-    toJSON (StanzaBackground x) = addStanzaType "background" x
+    toJSON (StanzaBackground x)       = addStanzaType "background" x
 
 addStanzaType :: ToJSON a => Value -> a -> Value
 addStanzaType t x =
     case toJSON x of
         Object o -> Object $ HashMap.insert "type" t o
-        v -> v
+        v        -> v
 
 data StaticFilesConfig = StaticFilesConfig
     { sfconfigRoot       :: !F.FilePath
@@ -323,7 +320,7 @@ instance ToJSON RedirectAction where
         case toJSON dest of
             Object o ->
                 case path of
-                    SPAny -> Object o
+                    SPAny        -> Object o
                     SPSpecific x -> Object $ HashMap.insert "path" (String x) o
             v -> v
 
@@ -351,7 +348,7 @@ instance ToJSON RedirectDest where
         [ Just $ "secure" .= secure
         , Just $ "host" .= CI.original host
         , case mport of
-            Nothing -> Nothing
+            Nothing   -> Nothing
             Just port -> Just $ "port" .= port
         ]
 
@@ -397,7 +394,7 @@ instance ParseYamlFile (WebAppConfig ()) where
             (do
                 hs <- o .: "hosts"
                 case hs of
-                    [] -> fail "Must provide at least one host"
+                    []    -> fail "Must provide at least one host"
                     h:hs' -> return (CI.mk h, Set.fromList $ map CI.mk hs'))
         WebAppConfig
             <$> lookupBase basedir o "exec"
@@ -442,7 +439,7 @@ data RestartCount = UnlimitedRestarts | LimitedRestarts !Word
 
 instance FromJSON RestartCount where
     parseJSON (String "unlimited") = return UnlimitedRestarts
-    parseJSON v = LimitedRestarts <$> parseJSON v
+    parseJSON v                    = LimitedRestarts <$> parseJSON v
 
 instance ParseYamlFile BackgroundConfig where
     parseYamlFile basedir = withObject "BackgroundConfig" $ \o -> BackgroundConfig
@@ -459,7 +456,7 @@ instance ToJSON BackgroundConfig where
         , Just $ "args" .= bgconfigArgs
         , Just $ "env" .= bgconfigEnvironment
         , case bgconfigRestartCount of
-            UnlimitedRestarts -> Nothing
+            UnlimitedRestarts     -> Nothing
             LimitedRestarts count -> Just $ "restart-count" .= count
         , Just $ "restart-delay-seconds" .= bgconfigRestartDelaySeconds
         , Just $ "forward-env" .= bgconfigForwardEnv
