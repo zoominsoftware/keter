@@ -22,4 +22,3 @@ log/
 \.keter
 syntax: glob
 .projectile
-*.lock
