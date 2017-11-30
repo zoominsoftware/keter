@@ -336,7 +336,7 @@ ensureAlive RunningWebApp {..} = do
   where
     testApp :: Port -> IO Bool
     testApp port = do
-        res <- timeout (90 * 1000 * 1000) testApp'
+        res <- timeout (2400 * 1000 * 1000) testApp'
         return $ fromMaybe False res
       where
         testApp' = do
