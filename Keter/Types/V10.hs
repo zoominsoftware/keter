@@ -31,6 +31,7 @@ import qualified Keter.Types.V04                   as V04
 import           Network.HTTP.ReverseProxy.Rewrite (ReverseProxyConfig)
 import qualified Network.Wai.Handler.Warp          as Warp
 import qualified Network.Wai.Handler.WarpTLS       as WarpTLS
+import           Keter.Proxy.Rewrite               (RewritePath)
 import           System.Posix.Types                (EpochTime)
 
 data BundleConfig = BundleConfig
@@ -183,7 +184,7 @@ data StanzaRaw port
 --
 -- 2. Not all stanzas have an associated proxy action.
 data ProxyActionRaw
-    = PAPort Port !(Maybe Int)
+    = PAPort Port !(Maybe Int) [RewritePath]
     | PAStatic StaticFilesConfig
     | PARedirect RedirectConfig
     | PAReverseProxy ReverseProxyConfig ![ MiddlewareConfig ] !(Maybe Int)
@@ -345,12 +346,14 @@ data WebAppConfig port = WebAppConfig
     { waconfigExec        :: !F.FilePath
     , waconfigArgs        :: !(Vector Text)
     , waconfigEnvironment :: !(Map Text Text)
+    , waconfigApproot     :: !(Maybe Text) -- ^ manually set approot
     , waconfigApprootHost :: !Host -- ^ primary host, used for approot
     , waconfigHosts       :: !(Set Host) -- ^ all hosts, not including the approot host
     , waconfigSsl         :: !Bool
     , waconfigPort        :: !port
     , waconfigForwardEnv  :: !(Set Text)
     , waconfigTimeout     :: !(Maybe Int)
+    , waconfigRewritePath :: ![RewritePath] -- ^ URL path rewrite rules
     }
     deriving Show
 
@@ -360,12 +363,14 @@ instance ToCurrent (WebAppConfig ()) where
         { waconfigExec = exec
         , waconfigArgs = V.fromList args
         , waconfigEnvironment = Map.empty
+        , waconfigApproot = Nothing
         , waconfigApprootHost = CI.mk host
         , waconfigHosts = Set.map CI.mk hosts
         , waconfigSsl = ssl
         , waconfigPort = ()
         , waconfigForwardEnv = Set.empty
         , waconfigTimeout = Nothing
+        , waconfigRewritePath = []
         }
 
 instance ParseYamlFile (WebAppConfig ()) where
@@ -383,12 +388,14 @@ instance ParseYamlFile (WebAppConfig ()) where
             <$> lookupBase basedir o "exec"
             <*> o .:? "args" .!= V.empty
             <*> o .:? "env" .!= Map.empty
+            <*> o .:? "approot"
             <*> return ahost
             <*> return hosts
             <*> o .:? "ssl" .!= False
             <*> return ()
             <*> o .:? "forward-env" .!= Set.empty
             <*> o .:? "connection-time-bound"
+            <*> o .:? "rewrite-path" .!= []
 
 instance ToJSON (WebAppConfig ()) where
     toJSON WebAppConfig {..} = object
@@ -399,6 +406,7 @@ instance ToJSON (WebAppConfig ()) where
         , "ssl" .= waconfigSsl
         , "forward-env" .= waconfigForwardEnv
         , "connection-time-bound" .= waconfigTimeout
+        , "rewrite-path" .= waconfigRewritePath
         ]
 
 data AppInput = AIBundle !FilePath !EpochTime

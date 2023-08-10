@@ -1,24 +1,33 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TupleSections   #-}
+{-# LANGUAGE LambdaCase   #-}
 -- | A light-weight, minimalistic reverse HTTP proxy.
 module Keter.Proxy
     ( reverseProxy
     , HostLookup
     , TLSConfig (..)
+
+      , f1
     ) where
 
 import           Blaze.ByteString.Builder          (copyByteString)
-import           Control.Applicative               ((<|>))
+import           Control.Applicative               ((<|>),(<$>))
+import           Control.Exception                 (catch)
 import           Control.Monad.IO.Class            (liftIO)
 import qualified Data.ByteString                   as S
 import qualified Data.ByteString.Char8             as S8
 import qualified Data.CaseInsensitive              as CI
 import           Data.Default                      (Default (..))
-import           Data.Monoid                       (mappend, mempty)
+-- import           Data.Monoid                       (mappend, mempty,(<>))
+import           Data.Monoid                       (mempty,(<>))
+import           Data.Text                         as T
 import           Data.Text.Encoding                (decodeUtf8With, encodeUtf8)
 import           Data.Text.Encoding.Error          (lenientDecode)
+import           Data.Text.IO                      as TIO
 import qualified Data.Vector                       as V
+import           Keter.Proxy.Rewrite
 import           Keter.Types
 import           Keter.Types.Middleware
 import           Network.HTTP.Conduit              (Manager)
@@ -43,6 +52,8 @@ import qualified Network.Wai.Handler.WarpTLS       as WarpTLS
 import           Network.Wai.Middleware.Gzip       (gzip)
 import           Prelude                           hiding (FilePath, (++))
 import           WaiAppStatic.Listing              (defaultListing)
+
+import Debug.Trace
 
 -- | Mapping from virtual hostname to port number.
 type HostLookup = ByteString -> IO (Maybe ProxyAction)
@@ -119,7 +130,9 @@ withClient isSecure useHeader bound manager hostLookup =
                         then return Nothing
                         else hostLookup host'
         case mport of
-            Nothing -> return (def, WPRResponse $ unknownHostResponse host)
+            Nothing -> do
+              (def, ) . WPRResponse <$> unknownHostResponse host
+              -- return (def, WPRResponse $ unknownHostResponse host)
             Just (action, requiresSecure)
                 | requiresSecure && not isSecure -> performHttpsRedirect host req
                 | otherwise -> performAction req action
@@ -134,13 +147,24 @@ withClient isSecure useHeader bound manager hostLookup =
             , redirconfigActions = V.singleton $ RedirectAction SPAny
                                  $ RDPrefix True host' Nothing
             }
+    dbg :: (Show a) => String -> a -> a
+    dbg s x = trace ("(" <> s <> ": " <> show x <> ")") x
 
-    performAction req (PAPort port tbound) =
+    performAction req (PAPort port tbound rules) =
         return (addjustGlobalBound tbound, WPRModifiedRequest req' $ ProxyDest "127.0.0.1" port)
       where
-        req' = req
+        mRew = rewritePathParts rules
+                 (dbg "req" $ Wai.rawPathInfo req, dbg "qs" $ Wai.rawQueryString req)
+        req' = case dbg "mrew" mRew of
+          Nothing -> req
             { Wai.requestHeaders = ("X-Forwarded-Proto", protocol)
                                  : Wai.requestHeaders req
+            }
+          Just (path, query) -> req
+            { Wai.requestHeaders = ("X-Forwarded-Proto", protocol)
+                                 : Wai.requestHeaders req
+            , Wai.rawPathInfo = path
+            , Wai.rawQueryString = query
             }
     performAction _ (PAStatic StaticFilesConfig {..}) =
         return (addjustGlobalBound sfconfigTimeout, WPRApplication $ processMiddleware sfconfigMiddleware $ staticApp (defaultFileServerSettings sfconfigRoot)
@@ -200,10 +224,51 @@ missingHostResponse = Wai.responseBuilder
     [("Content-Type", "text/html; charset=utf-8")]
     $ copyByteString "<!DOCTYPE html>\n<html><head><title>Welcome to Keter</title></head><body><h1>Welcome to Keter</h1><p>You did not provide a virtual hostname for this request.</p></body></html>"
 
-unknownHostResponse :: ByteString -> Wai.Response
-unknownHostResponse host = Wai.responseBuilder
-    status200
-    [("Content-Type", "text/html; charset=utf-8")]
-    (copyByteString "<!DOCTYPE html>\n<html><head><title>Welcome to Keter</title></head><body><h1>Welcome to Keter</h1><p>The hostname you have provided, <code>"
-     `mappend` copyByteString host
-     `mappend` copyByteString "</code>, is not recognized.</p></body></html>")
+-- unknownHostResponse :: ByteString -> Wai.Response
+-- unknownHostResponse host = Wai.responseBuilder
+--     status200
+--     [("Content-Type", "text/html; charset=utf-8")]
+--     (copyByteString "<!DOCTYPE html>\n<html><head><title>Welcome to Keter</title></head><body><h1>Welcome to Keter</h1><p>The hostname you have provided, <code>"
+--      `mappend` copyByteString host
+--      `mappend` copyByteString "</code>, is not recognized.</p></body></html>")
+
+unknownHostResponse  :: ByteString -> IO Wai.Response
+unknownHostResponse host = do
+  m <- getBundleResponse host
+  return $ Wai.responseBuilder status200
+                              [("Content-Type", "text/html; charset=utf-8")]
+                              (copyByteString $ encodeUtf8 m)
+
+
+-- | Get response on unknown host request
+--  Return custom response in this search order
+--   1. Search {host}.html in /opt/keter/incoming
+--   2. Search default.html in /opt/keter/incoming
+--   3. Default "Welcome to keter" page
+--  Template can use placeholder #{HOST_NAME} that'll be replaced with the requested host
+getBundleResponse :: ByteString -> IO Text
+getBundleResponse host' =
+  maybe stdKeterMsg replaceHost
+    <$> (getHtml host >>= maybe (getHtml defTemplate) (return . Just))
+  where
+    defTemplate = "anyHost"
+    host        = decodeUtf8With lenientDecode host'
+    replaceHost = T.replace "#{HOST_NAME}" host
+    getHtml fNm = do
+      let fPath = T.unpack $ "/opt/keter/incoming/" <> fNm <> ".html"
+      -- let fPath = T.unpack $ "./" <> fNm <> ".html"
+      (Just . replaceHost <$> TIO.readFile fPath)
+        `catch` (\(_::SomeException) -> return Nothing)
+    stdKeterMsg =
+      T.concat [ "<!DOCTYPE html>\n<html><head>"
+               , "<title>Welcome to Keter</title></head><body>"
+               , "<h1>Welcome to Keter</h1>"
+               , "<p>The hostname you have provided, "
+               , "<code>", host, "</code>, "
+               , "is not recognized.</p></body></html>"]
+
+
+f1 :: IO ()
+f1 = do
+  e <- getBundleResponse "pero"
+  print e

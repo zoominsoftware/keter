@@ -144,7 +144,20 @@ withActions asc bconfig f =
             stanzas
             (wac { waconfigPort = port } : wacs)
             backs
-            (Map.unions $ actions : map (\host -> Map.singleton host (PAPort port (waconfigTimeout wac), rs)) hosts))
+            (Map.unions $
+               actions :
+               map (\host -> Map.singleton
+                               host
+                               (PAPort
+                                  port
+                                  (waconfigTimeout wac)
+                                  (waconfigRewritePath wac)
+                               , rs
+                               )
+                   )
+                   hosts
+            )
+        )
       where
         hosts = Set.toList $ Set.insert (waconfigApprootHost wac) (waconfigHosts wac)
     loop (Stanza (StanzaStaticFiles sfc) rs:stanzas) wacs backs actions0 =
@@ -282,8 +295,11 @@ launchWebApp AppStartConfig {..} aid BundleConfig {..} mdir rlog WebAppConfig {.
             , Map.fromList otherEnv
             , kconfigEnvironment ascKeterConfig
             , Map.singleton "PORT" $ pack $ show waconfigPort
-            , Map.singleton "APPROOT" $ scheme <> CI.original waconfigApprootHost <> pack extport
+            , Map.singleton "APPROOT" . fromMaybe computedApproot $
+                                                  waconfigApproot
             ]
+        computedApproot =
+          scheme <> CI.original waconfigApprootHost <> pack extport
     exec <- canonicalizePath waconfigExec
     bracketOnError
         (monitorProcess
