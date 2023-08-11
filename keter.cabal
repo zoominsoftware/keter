@@ -124,13 +124,18 @@ test-suite test
     default-language:    Haskell98
     hs-source-dirs: test
     main-is: Spec.hs
+    other-modules:
+      RewritePathSpec
     type: exitcode-stdio-1.0
     build-depends:   base
                    , transformers
                    , conduit
                    , bytestring
+                   , hspec
+                   , network-uri
                    , unix
                    , tasty
+                   , tasty-hspec
                    , tasty-hunit
                    , keter
                    , HUnit

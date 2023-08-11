@@ -24,6 +24,10 @@ import qualified Network.Wai                       as Wai
 import qualified Network.HTTP.Conduit      as HTTP
 import Keter.Proxy
 
+import qualified RewritePathSpec
+import System.IO.Unsafe (unsafePerformIO)
+import Test.Tasty.Hspec (TreatPendingAs(..), testSpec)
+
 main :: IO ()
 main = defaultMain keterTests
 
@@ -34,6 +38,8 @@ keterTests =
     [ testCase "Subdomain Integrity" caseSubdomainIntegrity
     , testCase "Head then post doesn't crash" headThenPostNoCrash
     , testCase "Wildcard Domains" caseWildcards
+    , localOption TreatPendingAsSuccess
+    $ unsafePerformIO (testSpec "Rewriting vendor-extension" RewritePathSpec.spec)
     ]
 
 caseSubdomainIntegrity :: IO ()
