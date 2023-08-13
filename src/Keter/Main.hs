@@ -3,7 +3,6 @@
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell     #-}
 
 module Keter.Main
     ( keter
@@ -31,7 +30,7 @@ import           System.Posix.Signals      (Handler (Catch), installHandler,
 
 import           Control.Applicative       ((<$>))
 import           Control.Exception         (throwIO, try, SomeException)
-import           Control.Monad             (forM)
+import           Control.Monad             (forM, forM_)
 import           Control.Monad             (void, when)
 import           Keter.Conduit.Process.Unix (initProcessTracker)
 import qualified Data.Map                  as Map
@@ -61,7 +60,7 @@ keter :: FilePath -- ^ root directory or config file
       -> IO ()
 keter input mkPlugins = withManagers input mkPlugins $ \kc hostman appMan log -> do
     log LaunchCli
-    void $ forM (kconfigCliPort kc) $ \port ->
+    forM_ (kconfigCliPort kc) $ \port ->
       launchCli (MkCliStates
                 { csAppManager = appMan
                 , csLog        = log

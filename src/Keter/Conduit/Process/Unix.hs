@@ -23,8 +23,7 @@ module Keter.Conduit.Process.Unix
 import           Data.Text(Text, pack)
 import           Control.Applicative             ((<$>), (<*>), pure)
 import           Control.Arrow                   ((***))
-import           Control.Concurrent              (forkIO)
-import           Control.Concurrent              (threadDelay)
+import           Control.Concurrent              (forkIO, threadDelay)
 import           Control.Concurrent.MVar         (MVar, modifyMVar, modifyMVar_,
                                                   newEmptyMVar, newMVar,
                                                   putMVar, readMVar, swapMVar,
@@ -33,7 +32,7 @@ import           Control.Exception               (Exception, SomeException,
                                                   bracketOnError, finally,
                                                   handle, mask_,
                                                   throwIO, try)
-import           Control.Monad                   (void)
+import           Control.Monad                   (void, when)
 import           Data.ByteString                 (ByteString)
 import qualified Data.ByteString.Char8           as S8
 import           Data.Conduit                    (ConduitM, (.|), runConduit)
@@ -41,8 +40,7 @@ import           Data.Conduit.Binary             (sinkHandle, sourceHandle)
 import qualified Data.Conduit.List               as CL
 import           Data.IORef                      (IORef, newIORef, readIORef,
                                                   writeIORef)
-import           Data.Time                       (getCurrentTime)
-import           Data.Time                       (diffUTCTime)
+import           Data.Time                       (diffUTCTime, getCurrentTime)
 import           Data.Typeable                   (Typeable)
 import           Foreign.C.Types
 import           Prelude                         (Bool (..), Either (..), IO,
@@ -78,7 +76,7 @@ withProcessHandle_
         :: ProcessHandle
         -> (ProcessHandle__ -> IO ProcessHandle__)
         -> IO ()
-withProcessHandle_ ph io = modifyMVar_ (processHandleMVar ph) io
+withProcessHandle_ ph = modifyMVar_ (processHandleMVar ph)
 
 -- | Kill a process by sending it the KILL (9) signal.
 --
@@ -238,12 +236,12 @@ forkExecuteLog cmd args menv mwdir mstdin rlog = bracketOnError
             }
         ignoreExceptions $ addAttachMessage pipes ph
         void $ forkIO $ ignoreExceptions $
-            (runConduit $ sourceHandle readerH .| CL.mapM_ rlog) `finally` hClose readerH
+            runConduit (sourceHandle readerH .| CL.mapM_ rlog) `finally` hClose readerH
         case (min, mstdin) of
             (Just h, Just source) -> void $ forkIO $ ignoreExceptions $
-                (runConduit $ source .| sinkHandle h) `finally` hClose h
+                runConduit (source .| sinkHandle h) `finally` hClose h
             (Nothing, Nothing) -> return ()
-            _ -> error $ "Invariant violated: Data.Conduit.Process.Unix.forkExecuteLog"
+            _ -> error "Invariant violated: Data.Conduit.Process.Unix.forkExecuteLog"
         return ph
 
     addAttachMessage pipes ph = withProcessHandle_ ph $ \p_ -> do
@@ -316,12 +314,13 @@ monitorProcess log processTracker msetuid exec dir args env' rlog shouldRestart 
                                     TrackedProcess _ _ wait <- trackProcess processTracker pid
                                     ec <- wait
                                     shouldRestart' <- shouldRestart ec
-                                    if shouldRestart'
-                                        then loop (Just now)
-                                        else return ())
+                                    when shouldRestart' $
+                                        loop (Just now)
+                                    )
             next
     _ <- forkIO $ loop Nothing
     return $ MonitoredProcess mstatus
+{- HLINT ignore monitorProcess "Use join" -}
 
 -- | Abstract type containing information on a process which will be restarted.
 newtype MonitoredProcess = MonitoredProcess (MVar Status)

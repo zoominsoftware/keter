@@ -138,7 +138,7 @@ reverseProxy settings listener =
 connectClientCertificates :: (ByteString -> IO (Maybe (ProxyAction, TLS.Credentials))) -> Bool -> WarpTLS.TLSSettings -> WarpTLS.TLSSettings
 connectClientCertificates hl session s =
     let
-        newHooks@TLS.ServerHooks{..} = WarpTLS.tlsServerHooks s
+        newHooks@TLS.ServerHooks{} = WarpTLS.tlsServerHooks s
         -- todo: add nested lookup
         newOnServerNameIndication (Just n) =
              maybe mempty snd <$> hl (S8.pack n)
@@ -146,7 +146,7 @@ connectClientCertificates hl session s =
              return mempty -- we could return default certificate here
     in
         s { WarpTLS.tlsServerHooks = newHooks{TLS.onServerNameIndication = newOnServerNameIndication}
-          , WarpTLS.tlsSessionManagerConfig = if session then (Just TLSSession.defaultConfig) else Nothing }
+          , WarpTLS.tlsSessionManagerConfig = if session then Just TLSSession.defaultConfig else Nothing }
 
 
 

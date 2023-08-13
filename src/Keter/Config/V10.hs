@@ -26,12 +26,10 @@ import           Keter.Common
 import           Keter.Config.Middleware
 import qualified Keter.Config.V04                   as V04
 import qualified Network.Wai.Handler.Warp          as Warp
-import qualified Network.Wai.Handler.WarpTLS       as WarpTLS
 import           Keter.Proxy.Rewrite               (RewritePath)
 import           System.Posix.Types                (EpochTime)
 import           Keter.Rewrite(ReverseProxyConfig)
 import           Data.Text                  (Text)
-import           System.FilePath            (FilePath)
 import           Data.Set                   (Set)
 import           Data.Map                   (Map)
 
@@ -44,7 +42,7 @@ instance ToCurrent BundleConfig where
     type Previous BundleConfig = V04.BundleConfig
     toCurrent (V04.BundleConfig webapp statics redirs) = BundleConfig
         { bconfigStanzas = V.concat
-            [ maybe V.empty V.singleton $ fmap (flip Stanza False . StanzaWebApp . toCurrent) webapp
+            [ maybe V.empty (V.singleton . flip Stanza False . StanzaWebApp . toCurrent) webapp
             , V.fromList $ map (flip Stanza False . StanzaStaticFiles . toCurrent) $ Set.toList statics
             , V.fromList $ map (flip Stanza False . StanzaRedirect . toCurrent) $ Set.toList redirs
             ]
@@ -313,7 +311,7 @@ instance ToCurrent RedirectConfig where
 
 instance ParseYamlFile RedirectConfig where
     parseYamlFile _ = withObject "RedirectConfig" $ \o -> RedirectConfig
-        <$> (Set.map CI.mk <$> ((o .: "hosts" <|> (Set.singleton <$> (o .: "host")))))
+        <$> (Set.map CI.mk <$> (o .: "hosts" <|> (Set.singleton <$> (o .: "host"))))
         <*> o .:? "status" .!= 303
         <*> o .: "actions"
         <*> o .:? "ssl" .!= SSLFalse

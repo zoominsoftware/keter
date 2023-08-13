@@ -47,7 +47,7 @@ data BundleConfig = BundleConfig
 
 instance ParseYamlFile BundleConfig where
     parseYamlFile basedir = withObject "BundleConfig" $ \o -> BundleConfig
-        <$> ((Just <$> parseYamlFile basedir (Object o)) <|> pure Nothing)
+        <$> optional (parseYamlFile basedir (Object o))
         <*> lookupBaseMaybe basedir o "static-hosts" .!= Set.empty
         <*> o .:? "redirects" .!= Set.empty
 

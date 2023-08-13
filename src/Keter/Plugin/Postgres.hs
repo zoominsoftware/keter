@@ -15,7 +15,7 @@ import           Keter.Aeson.KeyHelper      as AK (lookup)
 import           Control.Concurrent        (forkIO)
 import           Control.Concurrent.Chan
 import           Control.Concurrent.MVar
-import           Control.Exception         (fromException, throwIO, try)
+import           Control.Exception         (SomeException, fromException, throwIO, try)
 import           Control.Monad             (forever, mzero, replicateM, void)
 import           Control.Monad.Trans.Class (lift)
 import qualified Control.Monad.Trans.State as S
@@ -31,15 +31,13 @@ import           Data.Yaml
 import           Prelude                   hiding (FilePath)
 import           System.Directory          (createDirectoryIfMissing,
                                             doesFileExist, renameFile)
-import           System.FilePath           (takeDirectory, (<.>))
+import           System.FilePath           (FilePath, takeDirectory, (<.>))
 import           System.IO.Error           (annotateIOError,
                                             ioeGetFileName,
                                             isDoesNotExistError)
 import           System.Process            (readProcess)
 import qualified System.Random             as R
 import           Data.Text                  (Text)
-import           System.FilePath            (FilePath)
-import           Control.Exception          (SomeException)
 
 data Settings = Settings
     { setupDBInfo :: DBInfo -> IO ()
@@ -56,13 +54,12 @@ defaultSettings = Settings
                     " OWNER "              <> fromText dbiUser <>
                     ";"
                 (cmd, args) 
-                    | (  dbServer dbiServer == "localhost" 
-                      || dbServer dbiServer == "127.0.0.1") = 
+                    | dbServer dbiServer == "localhost" || dbServer dbiServer == "127.0.0.1" =
                         ("sudo", ["-u", "postgres", "psql"])
                     | otherwise = 
                         ("psql",
-                        [ "-h", (T.unpack $ dbServer dbiServer)
-                        , "-p", (show $ dbPort dbiServer)
+                        [ "-h", T.unpack $ dbServer dbiServer
+                        , "-p", show $ dbPort dbiServer
                         , "-U", "postgres"])
             _ <- readProcess cmd args $ TL.unpack sql
             return ()
@@ -85,7 +82,7 @@ data DBServerInfo = DBServerInfo
 
 randomDBI :: DBServerInfo -> R.StdGen -> (DBInfo, R.StdGen)
 randomDBI dbsi =
-    S.runState (DBInfo <$> rt <*> rt <*> rt <*> (pure dbsi)) 
+    S.runState (DBInfo <$> rt <*> rt <*> rt <*> pure dbsi)
   where
     rt = T.pack <$> replicateM 10 (S.state $ R.randomR ('a', 'z'))
 
@@ -185,9 +182,9 @@ load Settings{..} fp = do
 
     sanitize = T.map sanitize'
     sanitize' c
-        | 'A' <= c && c <= 'Z' = C.toLower c
-        | 'a' <= c && c <= 'z' = c
-        | '0' <= c && c <= '9' = c
+        | C.isAsciiUpper c = C.toLower c
+        | C.isAsciiLower c = c
+        | C.isDigit c = c
         | otherwise = '_'
 
 edbiToEnv :: Either SomeException DBInfo

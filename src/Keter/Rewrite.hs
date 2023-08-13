@@ -54,7 +54,7 @@ data RPEntry = RPEntry
     }
 
 instance Show RPEntry where
-  show x = "RPEntry { config = " ++ (show $ config x) ++ " }"
+  show x = "RPEntry { config = " ++ show (config x) ++ " }"
 
 rewriteHeader :: Map HeaderName RewriteRule -> Header -> Header
 rewriteHeader rules header@(name, value) =

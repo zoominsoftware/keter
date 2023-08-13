@@ -18,11 +18,9 @@ module Keter.AppManager
     ) where
 
 import Keter.Common
-import           Data.Set                   (Set)
-import           Data.Text                  (Text)
+import           Data.Text                  (Text, pack, unpack)
 import           System.FilePath            (FilePath)
 import           Data.Map                   (Map)
-import           Control.Exception          (SomeException)
 import           Control.Applicative
 import           Control.Concurrent         (forkIO)
 import           Control.Concurrent.MVar    (MVar, newMVar, withMVar)
@@ -33,7 +31,6 @@ import           Data.Foldable              (fold)
 import qualified Data.Map                   as Map
 import           Data.Maybe                 (catMaybes, mapMaybe)
 import qualified Data.Set                   as Set
-import           Data.Text                  (pack, unpack)
 import qualified Data.Text.Lazy             as LT
 import qualified Data.Text.Lazy.Builder     as Builder
 import           Data.Traversable.WithIndex (itraverse)
@@ -60,7 +57,7 @@ data AppState = ASRunning App
               | ASTerminated
 
 showAppState :: AppState -> STM Text
-showAppState (ASRunning x) = (\x -> "running(" <> x <> ")") <$> showApp x
+showAppState (ASRunning x) = ("running(" <>) . (<> ")") <$> showApp x
 showAppState (ASStarting mapp tmtime tmaction) = do
   mtime   <- readTVar tmtime
   maction <- readTVar tmaction
@@ -71,7 +68,7 @@ showAppState ASTerminated = pure "terminated"
 renderApps :: AppManager -> STM Text
 renderApps mngr = do
   appMap <- readTVar $ apps mngr
-  x <- itraverse (\appId tappState -> do
+  x <- itraverse (\_appId tappState -> do
                 state <- readTVar tappState
                 res <- showAppState state
                 pure $ Builder.fromText $ res <> " \n"

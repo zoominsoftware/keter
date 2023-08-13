@@ -17,8 +17,8 @@ module Keter.App
 
 import Keter.Common
 import           Data.Set                   (Set)
-import           Data.Text                  (Text)
-import           System.FilePath            (FilePath)
+import           Data.Text                  (Text, pack, unpack)
+import           System.FilePath            (FilePath, (</>))
 import           Data.Map                   (Map)
 import           Keter.Rewrite (ReverseProxyConfig (..))
 import           Keter.TempTarball
@@ -28,26 +28,24 @@ import           Control.Concurrent        (forkIO, threadDelay)
 import           Control.Concurrent.STM
 import           Control.Exception         (IOException, bracketOnError,
                                             throwIO, try, catch)
-import           Control.Monad             (void, when, liftM)
+import           Control.Monad             (void, when)
 import qualified Data.CaseInsensitive      as CI
 import           Keter.Conduit.LogFile      (RotatingLog)
 import qualified Keter.Conduit.LogFile      as LogFile
 import           Keter.Conduit.Process.Unix (MonitoredProcess, ProcessTracker,
                                             monitorProcess,
                                             terminateMonitoredProcess, printStatus)
-import           Data.Foldable             (for_, traverse_)
+import           Data.Foldable             (for_)
 import           Data.IORef
 import qualified Data.Map                  as Map
 import           Data.Maybe                (fromMaybe)
 import           Data.Monoid               ((<>), mempty)
 import qualified Data.Set                  as Set
-import           Data.Text                 (pack, unpack)
 import           Data.Text.Encoding        (decodeUtf8With, encodeUtf8)
 import           Data.Text.Encoding.Error  (lenientDecode)
 import qualified Data.Vector               as V
 import           Data.Yaml
 import           Keter.Yaml.FilePath
-import System.FilePath ((</>))
 import           System.Directory          (canonicalizePath, doesFileExist,
                                             removeDirectoryRecursive)
 import           Keter.HostManager         hiding (start)
@@ -73,7 +71,7 @@ data App = App
     , appRlog           :: !(TVar (Maybe RotatingLog))
     }
 instance Show App where
-  show App {appId, ..} = "App{appId=" <> show appId <> "}"
+  show App {appId} = "App{appId=" <> show appId <> "}"
 
 -- | within an stm context we can show a lot more then the show instance can do
 showApp :: App -> STM Text
@@ -82,8 +80,8 @@ showApp App{..} = do
   appRunning' <- readTVar appRunningWebApps
   appHosts'   <- readTVar appHosts
   pure $ pack $
-    (show appId) <>
-    " modtime: " <> (show appModTime') <>  ", webappsRunning: " <>  show appRunning' <> ", hosts: " <> show appHosts'
+    show appId <>
+    " modtime: " <> show appModTime' <>  ", webappsRunning: " <>  show appRunning' <> ", hosts: " <> show appHosts'
 
 
 data RunningWebApp = RunningWebApp
@@ -93,7 +91,7 @@ data RunningWebApp = RunningWebApp
     }
 
 instance Show RunningWebApp where
-  show (RunningWebApp {..})  = "RunningWebApp{rwaPort=" <> show rwaPort <> ", rwaEnsureAliveTimeOut=" <> show rwaEnsureAliveTimeOut <> ",..}"
+  show RunningWebApp {..}  = "RunningWebApp{rwaPort=" <> show rwaPort <> ", rwaEnsureAliveTimeOut=" <> show rwaEnsureAliveTimeOut <> ",..}"
 
 newtype RunningBackgroundApp = RunningBackgroundApp
     { rbaProcess :: MonitoredProcess
@@ -224,7 +222,7 @@ withActions asc bconfig f =
 withRotatingLog :: AppStartConfig
                 -> AppId
                 -> Maybe (TVar (Maybe RotatingLog))
-                -> ((TVar (Maybe RotatingLog)) -> RotatingLog -> IO a)
+                -> (TVar (Maybe RotatingLog) -> RotatingLog -> IO a)
                 -> IO a
 withRotatingLog asc aid Nothing f = do
     var <- newTVarIO Nothing
@@ -405,7 +403,7 @@ ensureAlive RunningWebApp {..} = do
               tryToConnect addr =
                 bracketOnError
                   (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
-                  (close)  -- only done if there's an error
+                  close  -- only done if there's an error
                   (\sock -> do
                     connect sock (addrAddress addr)
                     socketToHandle sock ReadWriteMode
@@ -418,10 +416,10 @@ ensureAlive RunningWebApp {..} = do
                           Right x -> return x
                           Left  e -> go (Just e) ps
                  -- All operations failed, throw error if one exists
-                  go Nothing  [] = ioError $ userError $ "connectTo firstSuccessful: empty list"
+                  go Nothing  [] = ioError $ userError "connectTo firstSuccessful: empty list"
                   go (Just e) [] = throwIO e
                   tryIO :: IO a -> IO (Either IOException a)
-                  tryIO m = catch (liftM Right m) (return . Left)
+                  tryIO m = catch (fmap Right m) (return . Left)
 
 
 withBackgroundApps :: AppStartConfig
@@ -670,7 +668,7 @@ terminateHelper :: AppStartConfig
                 -> Maybe FilePath
                 -> Maybe RotatingLog
                 -> IO ()
-terminateHelper AppStartConfig {..} aid apps backs mdir rlog = do
+terminateHelper AppStartConfig {..} aid apps backs mdir _rlog = do
     threadDelay $ 20 * 1000 * 1000
     ascLog $ TerminatingOldProcess aid
     mapM_ (killWebApp ascLog) apps

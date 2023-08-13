@@ -24,7 +24,7 @@ main = do
     run port $ logger $ \req send -> do
         liftIO $ putStrLn $ "Received a request at: " ++ show (pathInfo req)
         liftIO $ hFlush stdout
-        liftIO $ hPutStrLn stderr $ "Testing standard error"
+        liftIO $ hPutStrLn stderr "Testing standard error"
         liftIO $ hFlush stderr
         send $ responseLBS status200 [("content-type", "text/plain")]
              $ L8.pack $ unlines

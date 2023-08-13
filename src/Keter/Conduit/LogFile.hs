@@ -89,7 +89,7 @@ moveCurrent dir = do
 
 suffix :: UTCTime -> FilePath
 suffix now =
-    (concatMap fix $ takeWhile (/= '.') $ show now) <.> "log"
+    (concatMap fix . takeWhile (/= '.') . show $ now) <.> "log"
   where
     fix ' ' = "_"
     fix c | '0' <= c && c <= '9' = [c]

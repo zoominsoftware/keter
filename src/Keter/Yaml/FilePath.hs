@@ -1,5 +1,4 @@
 {-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 -- | Utilities for dealing with YAML config files which contain relative file
 -- paths.
@@ -59,7 +58,7 @@ class ParseYamlFile a where
     parseYamlFile :: BaseDir -> Value -> Parser a
 
 instance ParseYamlFile FilePath where
-    parseYamlFile (BaseDir dir) o = ((dir </>) . unpack) <$> parseJSON o
+    parseYamlFile (BaseDir dir) o = (dir </>) . unpack <$> parseJSON o
 instance (ParseYamlFile a, Ord a) => ParseYamlFile (Set.Set a) where
     parseYamlFile base o = parseJSON o >>= ((Set.fromList <$>) . mapM (parseYamlFile base))
 instance ParseYamlFile a => ParseYamlFile (V.Vector a) where

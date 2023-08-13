@@ -2,7 +2,6 @@
 
 module Main where
 
-import Network.HTTP.Client (defaultManagerSettings, managerResponseTimeout)
 import Network.HTTP.Types.Status(ok200)
 import qualified Network.Wai.Handler.Warp as Warp
 import Keter.Config.V10
@@ -14,8 +13,6 @@ import Test.Tasty.HUnit
 import Control.Monad
 import           Control.Exception          (SomeException)
 import           Network.HTTP.Conduit              (Manager)
-import Control.Lens
-import Network.Wreq(Options)
 import Data.ByteString(ByteString)
 import qualified Network.Wreq as Wreq
 import Control.Monad.STM
@@ -65,15 +62,15 @@ headThenPostNoCrash = do
   manager <- HTTP.newManager HTTP.tlsManagerSettings
   exceptions <- newTQueueIO
 
-  forkIO $ do
+  void . forkIO $ do
     Warp.run 6781 $ \req resp -> do
       void $ Wai.strictRequestBody req
       resp $ Wai.responseLBS ok200 [] "ok"
 
-  forkIO $ do
+  void . forkIO $ do
     reverseProxy (settings exceptions manager) $ LPInsecure "*" 6780
 
-  res <- Wreq.head_ "http://localhost:6780"
+  void $ Wreq.head_ "http://localhost:6780"
 
   void $ Wreq.post "http://localhost:6780" content
 
