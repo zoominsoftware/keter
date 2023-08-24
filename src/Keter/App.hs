@@ -352,7 +352,9 @@ launchWebApp AppStartConfig {..} aid BundleConfig {..} mdir rlog WebAppConfig {.
             (map encodeUtf8 $ V.toList waconfigArgs)
             (map (encodeUtf8 *** encodeUtf8) env)
             (LogFile.addChunk rlog)
-            (const $ return True))
+            (const $ return True)
+            (kconfigCrashHook ascKeterConfig, name)
+        )
         terminateMonitoredProcess
         $ \mp -> f RunningWebApp
             { rwaProcess = mp
@@ -479,7 +481,9 @@ launchBackgroundApp AppStartConfig {..} aid BundleConfig {..} mdir rlog Backgrou
             (map encodeUtf8 $ V.toList bgconfigArgs)
             (map (encodeUtf8 *** encodeUtf8) env)
             (LogFile.addChunk rlog)
-            (const shouldRestart))
+            (const shouldRestart)
+            (kconfigCrashHook ascKeterConfig, name)
+        )
         terminateMonitoredProcess
         (f . RunningBackgroundApp)
   where

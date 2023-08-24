@@ -3,6 +3,7 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings        #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
+{-# LANGUAGE LambdaCase               #-}
 
 module Keter.Conduit.Process.Unix
     ( -- * Process tracking
@@ -20,7 +21,7 @@ module Keter.Conduit.Process.Unix
     , printStatus
     ) where
 
-import           Data.Text(Text, pack)
+import           Data.Text(Text, pack, unpack)
 import           Control.Applicative             ((<$>), (<*>), pure)
 import           Control.Arrow                   ((***))
 import           Control.Concurrent              (forkIO, threadDelay)
@@ -48,9 +49,10 @@ import           Prelude                         (Bool (..), Either (..), IO,
                                                   const, error,
                                                   map, maybe, show,
                                                   ($), ($!), (*), (<),
-                                                  (==))
-import           System.Exit                     (ExitCode)
+                                                  (==), (/=), (.))
+import           System.Exit                     (ExitCode (..))
 import           System.IO                       (hClose)
+import           System.Posix.Env
 import           System.Posix.IO.ByteString      ( closeFd, createPipe,
                                                   fdToHandle)
 import           System.Posix.Signals            (sigKILL, signalProcess)
@@ -58,7 +60,7 @@ import           System.Posix.Types              (CPid (..))
 import           System.Process                  (CmdSpec (..), CreateProcess (..),
                                                   StdStream (..), createProcess,
                                                   terminateProcess, waitForProcess,
-                                                  getPid)
+                                                  getPid, system)
 import           System.Process.Internals        (ProcessHandle (..),
                                                   ProcessHandle__ (..))
 import Data.Monoid ((<>)) -- sauron
@@ -279,12 +281,12 @@ monitorProcess
     -> [(S8.ByteString, S8.ByteString)] -- ^ environment
     -> (ByteString -> IO ())
     -> (ExitCode -> IO Bool) -- ^ should we restart?
+    -> (Maybe Text, Text) -- ^ crash hook command, bundle name
     -> IO MonitoredProcess
-monitorProcess log processTracker msetuid exec dir args env' rlog shouldRestart = do
+monitorProcess log processTracker msetuid exec dir args env' rlog shouldRestart (crashHook, bname) = do
     mstatus <- newMVar NeedsRestart
     let loop mlast = do
-            next <- modifyMVar mstatus $ \status ->
-                case status of
+            next <- modifyMVar mstatus $ \case
                     NoRestart -> return (NoRestart, return ())
                     _ -> do
                         now <- getCurrentTime
@@ -313,6 +315,7 @@ monitorProcess log processTracker msetuid exec dir args env' rlog shouldRestart 
                                 return (Running pid, do
                                     TrackedProcess _ _ wait <- trackProcess processTracker pid
                                     ec <- wait
+                                    maybeNotifyAppCrash crashHook ec
                                     shouldRestart' <- shouldRestart ec
                                     when shouldRestart' $
                                         loop (Just now)
@@ -320,6 +323,14 @@ monitorProcess log processTracker msetuid exec dir args env' rlog shouldRestart 
             next
     _ <- forkIO $ loop Nothing
     return $ MonitoredProcess mstatus
+    where
+      maybeNotifyAppCrash _ ExitSuccess = return ()
+      maybeNotifyAppCrash Nothing _ = return ()
+      maybeNotifyAppCrash (Just cmd) (ExitFailure exitcode)
+        = void . forkIO . ignoreExceptions $ do
+        setEnv "KETER_APP_NAME" (unpack bname) True
+        setEnv "KETER_APP_EXITCODE" (show exitcode) True
+        void . system $ unpack cmd
 {- HLINT ignore monitorProcess "Use join" -}
 
 -- | Abstract type containing information on a process which will be restarted.

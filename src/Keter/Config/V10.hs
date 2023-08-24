@@ -111,6 +111,8 @@ data KeterConfig = KeterConfig
     , kconfigUnknownHostResponse  :: !(Maybe F.FilePath)
     , kconfigMissingHostResponse  :: !(Maybe F.FilePath)
     , kconfigProxyException       :: !(Maybe F.FilePath)
+
+    , kconfigCrashHook            :: !(Maybe Text)
     }
 
 instance ToCurrent KeterConfig where
@@ -130,6 +132,7 @@ instance ToCurrent KeterConfig where
         , kconfigUnknownHostResponse  = Nothing
         , kconfigMissingHostResponse = Nothing
         , kconfigProxyException      = Nothing
+        , kconfigCrashHook = Nothing
         }
       where
         getSSL Nothing = V.empty
@@ -157,6 +160,7 @@ defaultKeterConfig = KeterConfig
         , kconfigUnknownHostResponse  = Nothing
         , kconfigMissingHostResponse = Nothing
         , kconfigProxyException      = Nothing
+        , kconfigCrashHook = Nothing
         }
 
 instance ParseYamlFile KeterConfig where
@@ -181,6 +185,7 @@ instance ParseYamlFile KeterConfig where
             <*> o .:? "missing-host-response-file"
             <*> o .:? "unknown-host-response-file"
             <*> o .:? "proxy-exception-response-file"
+            <*> o .:? "app-crash-hook"
 
 -- | Whether we should force redirect to HTTPS routes.
 type RequiresSecure = Bool
