@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE PatternGuards      #-}
 {-# LANGUAGE TemplateHaskell    #-}
 {-# LANGUAGE TypeFamilies       #-}
 
@@ -7,7 +8,7 @@
 module Keter.Common where
 
 import qualified Network.Wai                       as Wai
-import           Control.Exception          (Exception, SomeException)
+import           Control.Exception          (Exception (..), SomeException)
 import           Data.Aeson                 (FromJSON, Object, ToJSON,
                                              Value (Bool), object, withBool,
                                              withObject, (.!=), (.:?), (.=))
@@ -23,6 +24,7 @@ import qualified Data.Vector                as V
 import qualified Data.Yaml
 import           Keter.Yaml.FilePath
 import qualified Language.Haskell.TH.Syntax as TH
+import           Network.HTTP.Client        (HttpException(..))
 import           Network.Socket             (AddrInfo, SockAddr)
 import           System.Exit                (ExitCode)
 import           System.FilePath            (FilePath, takeBaseName)
@@ -155,7 +157,12 @@ instance Show LogMessage where
     show StartListening = "Started listening"
     show (BindCli addr) = "Bound cli to " <> show addr
     show (ReceivedCliConnection peer) = "CLI Connection from " <> show peer
-    show (ProxyException req except) = "Got a proxy exception on request " <> show req <> " with exception "  <> show except
+    show (ProxyException req exc)
+      = "Caught a proxy exception --[ " <> showExc <> " ]-- on " <> show req
+      where
+        -- we log the request anyway, ignore _rq containing a near-exact copy of it
+        showExc | Just (HttpExceptionRequest _rq err) <- fromException exc = show err
+                | otherwise = displayException exc
 
 data KeterException = CannotParsePostgres FilePath
                     | ExitCodeFailure FilePath ExitCode
