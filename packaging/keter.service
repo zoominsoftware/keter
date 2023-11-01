@@ -1,0 +1,14 @@
+[Unit]
+Description=Keter appserver for Yesod webapps
+After=network.service
+
+[Service]
+Type=simple
+ExecStart=/opt/keter/bin/keter /opt/keter/etc/keter-config.yaml
+Restart=on-failure
+RestartSec=500ms
+
+LimitNOFILE=140000
+
+[Install]
+WantedBy=multi-user.target

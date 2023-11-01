@@ -1,0 +1,18 @@
+root: ..
+
+listeners:
+  - host: "*"
+    port: 80
+  - host: "*"
+    port: 443
+
+ip-from-header: true
+
+connection-time-bound: 3000000
+
+# Status to return when Welcome to Keter is about to be shown.
+# Default value is 200 - OK.
+unknown-host-status: 501
+
+app-crash-hook: /opt/keter/bin/app-crash-hook
+

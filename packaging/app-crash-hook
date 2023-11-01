@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+
+"""
+USAGE:
+ * install keter version keter-2.0.1.zoomin109 or newer;
+ * in keter's global config file, /opt/keter/etc/keter-config.yaml
+   add key 'app-crash-hook' pointing to this script;
+ * restart keter to apply changes.
+"""
+
+from os import getenv, system
+from signal import Signals
+import json, requests, re
+import socket
+import subprocess
+
+#-- keter passes these env-variables when calling the crash hook
+APP_NAME = getenv('KETER_APP_NAME')
+APP_EXITCODE = getenv('KETER_APP_EXITCODE')
+BOT_TOKEN = json.loads(subprocess.check_output('''
+    aws ssm get-parameter --name /slack-bot-token/do-zoomin-notifier --with-decryption --region=us-east-1
+    '''.strip(), shell=True))['Parameter']['Value']
+CHANNEL = 'oom-kill-notifications'
+INSTANCE_ID = requests.get('http://instance-data/latest/meta-data/instance-id').text
+INSTANCE_NAME = re.sub(r".*404 - Not Found.*", "Tag Name absent or IMDS disabled",
+    requests.get('http://instance-data/latest/meta-data/tags/instance/Name').text,
+    flags=re.MULTILINE | re.DOTALL)
+HOSTNAME = socket.getfqdn()
+
+#-- sig-killed processes indicate which signal in exitcode, resolve that
+exitcode = int(APP_EXITCODE)
+status = str(exitcode) + (" " + Signals(-exitcode).name if exitcode < 0 else "")
+#-- announce on console
+system(f'wall "Keter app {APP_NAME} exited with {status}"')
+
+if (exitcode == -9):
+    #-- ping Slack channel
+    msg = f"""
+        :warning: *{INSTANCE_NAME}*
+        Keter app {APP_NAME} exited with {status} (on {HOSTNAME})
+        """.strip()
+    requests.post('https://slack.com/api/chat.postMessage',
+                 json.dumps({'channel': CHANNEL, "text": msg}),
+                 headers={'Authorization': f'Bearer {BOT_TOKEN}',
+                 'Content-Type': 'application/json; charset=utf-8'})
+

@@ -1,6 +1,7 @@
 *.swp
 nginx.conf
 dist/
+dist-newstyle/
 dist-stack/
 process.txt
 process2.txt
@@ -21,3 +22,6 @@ log/
 .stack-work/
 cabal.sandbox.config
 *.sublime-*
+
+out/
+DEBDIST/
