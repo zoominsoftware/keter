@@ -10,9 +10,6 @@ ip-from-header: true
 
 connection-time-bound: 3000000
 
-# Status to return when Welcome to Keter is about to be shown.
-# Default value is 200 - OK.
-unknown-host-status: 501
 unknown-host-response-file: /opt/keter/etc/anyHost.html
 missing-host-response-file: /opt/keter/etc/anyHost.html
 
