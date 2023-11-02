@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections   #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE CPP #-}
@@ -25,9 +26,12 @@ import qualified Data.ByteString.Char8             as S8
 import           Network.Wai.Middleware.Gzip       (def)
 #endif
 import           Data.Monoid                       (mappend, mempty)
+import           Data.Proxy
+import           Data.Tagged
 import           Data.Text.Encoding                (decodeUtf8With, encodeUtf8)
 import           Data.Text.Encoding.Error          (lenientDecode)
 import qualified Data.Vector                       as V
+import           GHC.TypeLits (KnownSymbol, symbolVal)
 import           Keter.Config
 import           Keter.Config.Middleware
 import           Network.HTTP.Conduit              (Manager)
@@ -95,9 +99,9 @@ data ProxySettings = MkProxySettings
 makeSettings :: (LogMessage -> IO ()) -> KeterConfig -> HostMan.HostManager -> IO ProxySettings
 makeSettings log KeterConfig {..} hostman = do
     psManager <- HTTP.newManager HTTP.tlsManagerSettings
-    psMissingHost <- taggedReadFile "unknown-host-response-file" kconfigMissingHostResponse defaultMissingHostBody id
-    psUnknownHost <- taggedReadFile "missing-host-response-file" kconfigUnknownHostResponse defaultUnknownHostBody const
-    psProxyException <- taggedReadFile "proxy-exception-response-file" kconfigProxyException defaultProxyException id
+    psMissingHost <- taggedReadFile kconfigMissingHostResponse defaultMissingHostBody id
+    psUnknownHost <- taggedReadFile kconfigUnknownHostResponse defaultUnknownHostBody const
+    psProxyException <- taggedReadFile kconfigProxyException defaultProxyException id
     pure $ MkProxySettings{..}
     where
         psLogException a b = log $ ProxyException a b
@@ -108,14 +112,16 @@ makeSettings log KeterConfig {..} hostman = do
         psConnectionTimeBound = kconfigConnectionTimeBound * 1000
         psIpFromHeader   = kconfigIpFromHeader
 
-taggedReadFile :: String -> Maybe FilePath -> ret -> (ByteString -> ret) -> IO ret
-taggedReadFile _ Nothing fallback _ = pure fallback
-taggedReadFile tag (Just file) _ processContents = do
+taggedReadFile :: forall ret key. KnownSymbol key
+               => Tagged key (Maybe FilePath) -> ret -> (ByteString -> ret) -> IO ret
+taggedReadFile (Tagged Nothing)     fallback _        = pure fallback
+taggedReadFile (Tagged (Just file)) _ processContents = do
   isExist <- Dir.doesFileExist file
   if isExist then S.readFile file <&> processContents else do
     wd <- Dir.getCurrentDirectory
     error $ "could not find " <> tag <> " on path '" <> file <> "' with working dir '" <> wd <> "'"
     -- FIXME instead of failing, log a warning and return fallback value?
+  where tag = symbolVal (Proxy :: Proxy key)
 
 reverseProxy :: ProxySettings -> ListeningPort -> IO ()
 reverseProxy settings listener =

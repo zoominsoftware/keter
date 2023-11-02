@@ -1,7 +1,9 @@
+{-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies      #-}
 module Keter.Config.V10 where
 
@@ -10,13 +12,16 @@ import           Data.Aeson                        (FromJSON (..), ToJSON (..), 
                                                     Value (Object, String, Bool),
                                                     withObject, (.!=), (.:),
                                                     (.:?), object, (.=))
+import           Data.Aeson.Types (Parser)
 import           Keter.Aeson.KeyHelper              as AK (lookup, singleton, empty, insert)
 import qualified Data.CaseInsensitive              as CI
 import           Data.Conduit.Network              (HostPreference)
 import qualified Data.Map                          as Map
 import           Data.Maybe                        (catMaybes, fromMaybe, isJust)
+import           Data.Proxy (Proxy(Proxy))
 import qualified Data.Set                          as Set
 import           Data.String                       (fromString)
+import           Data.Tagged
 import           Data.Vector                       (Vector)
 import qualified Data.Vector                       as V
 import           Data.Word                         (Word)
@@ -32,6 +37,7 @@ import           Keter.Rewrite(ReverseProxyConfig)
 import           Data.Text                  (Text)
 import           Data.Set                   (Set)
 import           Data.Map                   (Map)
+import           GHC.TypeLits (KnownSymbol, symbolVal)
 
 data BundleConfig = BundleConfig
     { bconfigStanzas :: !(Vector (Stanza ()))
@@ -108,9 +114,9 @@ data KeterConfig = KeterConfig
     , kconfigCliPort             :: !(Maybe Port)
     -- ^ Port for the cli to listen on
 
-    , kconfigUnknownHostResponse  :: !(Maybe F.FilePath)
-    , kconfigMissingHostResponse  :: !(Maybe F.FilePath)
-    , kconfigProxyException       :: !(Maybe F.FilePath)
+    , kconfigUnknownHostResponse  :: !(Tagged "unknown-host-response-file" (Maybe F.FilePath))
+    , kconfigMissingHostResponse  :: !(Tagged "missing-host-response-file" (Maybe F.FilePath))
+    , kconfigProxyException       :: !(Tagged "proxy-exception-response-file" (Maybe F.FilePath))
 
     , kconfigCrashHook            :: !(Maybe Text)
     }
@@ -129,9 +135,9 @@ instance ToCurrent KeterConfig where
         , kconfigEnvironment = Map.empty
         , kconfigConnectionTimeBound = connectionTimeBound
         , kconfigCliPort             = Nothing
-        , kconfigUnknownHostResponse  = Nothing
-        , kconfigMissingHostResponse = Nothing
-        , kconfigProxyException      = Nothing
+        , kconfigUnknownHostResponse  = Tagged Nothing
+        , kconfigMissingHostResponse = Tagged Nothing
+        , kconfigProxyException      = Tagged Nothing
         , kconfigCrashHook = Nothing
         }
       where
@@ -157,9 +163,9 @@ defaultKeterConfig = KeterConfig
         , kconfigEnvironment = Map.empty
         , kconfigConnectionTimeBound = V04.fiveMinutes
         , kconfigCliPort             = Nothing
-        , kconfigUnknownHostResponse  = Nothing
-        , kconfigMissingHostResponse = Nothing
-        , kconfigProxyException      = Nothing
+        , kconfigUnknownHostResponse  = Tagged Nothing
+        , kconfigMissingHostResponse = Tagged Nothing
+        , kconfigProxyException      = Tagged Nothing
         , kconfigCrashHook = Nothing
         }
 
@@ -182,10 +188,19 @@ instance ParseYamlFile KeterConfig where
             <*> o .:? "env" .!= Map.empty
             <*> o .:? "connection-time-bound" .!= V04.fiveMinutes
             <*> o .:? "cli-port"
-            <*> o .:? "missing-host-response-file"
-            <*> o .:? "unknown-host-response-file"
-            <*> o .:? "proxy-exception-response-file"
+            <*> inferOptKeyFromTaggedType o
+            <*> inferOptKeyFromTaggedType o
+            <*> inferOptKeyFromTaggedType o
             <*> o .:? "app-crash-hook"
+
+-- | Parse an object's optional key of type 'Tagged "foo-bar" Something'
+-- automatically from key "foo-bar".
+inferOptKeyFromTaggedType :: forall j key. (FromJSON j, KnownSymbol key)
+                          => Object
+                          -> Parser (Tagged key (Maybe j))
+inferOptKeyFromTaggedType o
+    = Tagged <$> o .:? fromString tag
+    where tag = symbolVal (Proxy :: Proxy key)
 
 -- | Whether we should force redirect to HTTPS routes.
 type RequiresSecure = Bool
