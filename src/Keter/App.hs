@@ -359,7 +359,7 @@ launchWebApp AppStartConfig {..} aid BundleConfig {..} mdir rlog WebAppConfig {.
         $ \mp -> f RunningWebApp
             { rwaProcess = mp
             , rwaPort = waconfigPort
-            , rwaEnsureAliveTimeOut = fromMaybe (2400 * 1000 * 1000) waconfigEnsureAliveTimeout
+            , rwaEnsureAliveTimeOut = fromMaybe (90 * 1000 * 1000) waconfigEnsureAliveTimeout
             }
   where
     name =
