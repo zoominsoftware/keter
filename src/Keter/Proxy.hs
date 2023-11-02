@@ -86,7 +86,7 @@ data ProxySettings = MkProxySettings
   , psManager        :: !Manager
   , psIpFromHeader   :: Bool
   , psConnectionTimeBound :: Int
-  , psUnkownHost     :: ByteString -> ByteString
+  , psUnknownHost    :: ByteString -> ByteString
   , psMissingHost    :: ByteString
   , psProxyException :: ByteString
   , psLogException   :: Wai.Request -> SomeException -> IO ()
@@ -96,7 +96,7 @@ makeSettings :: (LogMessage -> IO ()) -> KeterConfig -> HostMan.HostManager -> I
 makeSettings log KeterConfig {..} hostman = do
     psManager <- HTTP.newManager HTTP.tlsManagerSettings
     psMissingHost <- taggedReadFile "unknown-host-response-file" kconfigMissingHostResponse defaultMissingHostBody id
-    psUnkownHost <- taggedReadFile "missing-host-response-file" kconfigUnknownHostResponse defaultUnknownHostBody const
+    psUnknownHost <- taggedReadFile "missing-host-response-file" kconfigUnknownHostResponse defaultUnknownHostBody const
     psProxyException <- taggedReadFile "proxy-exception-response-file" kconfigProxyException defaultProxyException id
     pure $ MkProxySettings{..}
     where
@@ -190,7 +190,7 @@ withClient isSecure MkProxySettings {..} =
                         else psHostLookup host'
         case mport of
             Nothing -> do -- we don't know the host that was asked for
-              return (defaultLocalWaiProxySettings, WPRResponse $ unknownHostResponse host (psUnkownHost host))
+              return (defaultLocalWaiProxySettings, WPRResponse $ unknownHostResponse host (psUnknownHost host))
             Just ((action, requiresSecure), _)
                 | requiresSecure && not isSecure -> performHttpsRedirect host req
                 | otherwise -> performAction psManager isSecure bound req action
