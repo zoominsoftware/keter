@@ -119,6 +119,7 @@ data KeterConfig = KeterConfig
     , kconfigProxyException       :: !(Tagged "proxy-exception-response-file" (Maybe F.FilePath))
 
     , kconfigCrashHook            :: !(Maybe Text)
+    , kconfigHealthcheckPath      :: !(Tagged "healthcheck-path" (Maybe Text))
     }
 
 instance ToCurrent KeterConfig where
@@ -139,6 +140,7 @@ instance ToCurrent KeterConfig where
         , kconfigMissingHostResponse = Tagged Nothing
         , kconfigProxyException      = Tagged Nothing
         , kconfigCrashHook = Nothing
+        , kconfigHealthcheckPath = Tagged Nothing
         }
       where
         getSSL Nothing = V.empty
@@ -167,6 +169,7 @@ defaultKeterConfig = KeterConfig
         , kconfigMissingHostResponse = Tagged Nothing
         , kconfigProxyException      = Tagged Nothing
         , kconfigCrashHook = Nothing
+        , kconfigHealthcheckPath = Tagged Nothing
         }
 
 instance ParseYamlFile KeterConfig where
@@ -192,6 +195,7 @@ instance ParseYamlFile KeterConfig where
             <*> inferOptKeyFromTaggedType o
             <*> inferOptKeyFromTaggedType o
             <*> o .:? "app-crash-hook"
+            <*> inferOptKeyFromTaggedType o
 
 -- | Parse an object's optional key of type 'Tagged "foo-bar" Something'
 -- automatically from key "foo-bar".
