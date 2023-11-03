@@ -1,5 +1,5 @@
 --name keter
---version 2.0.1-zoomin110
+--version 2.0.1-zoomin111
 --description "Keter is an appserver for Yesod webapps written in Haskell"
 --url "https://github.com/zoominsoftware/keter"
 --maintainer "Max <maksym.ivanov@zoominsoftware.com>"

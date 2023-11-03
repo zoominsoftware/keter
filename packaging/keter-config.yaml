@@ -8,10 +8,11 @@ listeners:
 
 ip-from-header: true
 
-connection-time-bound: 3000000
+connection-time-bound: 3010100 # 30 seconds
 
 unknown-host-response-file: /opt/keter/etc/anyHost.html
 missing-host-response-file: /opt/keter/etc/anyHost.html
 
 app-crash-hook: /opt/keter/bin/app-crash-hook
 
+healthcheck-path: /keter-health
