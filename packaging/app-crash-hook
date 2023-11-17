@@ -22,9 +22,8 @@ BOT_TOKEN = json.loads(subprocess.check_output('''
     '''.strip(), shell=True))['Parameter']['Value']
 CHANNEL = 'oom-kill-notifications'
 INSTANCE_ID = requests.get('http://instance-data/latest/meta-data/instance-id').text
-INSTANCE_NAME = re.sub(r".*404 - Not Found.*", "Tag Name absent or IMDS disabled",
-    requests.get('http://instance-data/latest/meta-data/tags/instance/Name').text,
-    flags=re.MULTILINE | re.DOTALL)
+INSTANCE_NAME = subprocess.check_output(f'aws ec2 describe-tags --filters "Name=resource-id,Values={INSTANCE_ID}"'
+        ' "Name=key,Values=Name" --query "Tags[0].Value" --output text --region=us-east-1', shell=True)[:-1].decode('utf-8')
 HOSTNAME = socket.getfqdn()
 
 #-- sig-killed processes indicate which signal in exitcode, resolve that
