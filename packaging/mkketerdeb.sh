@@ -1,58 +1,48 @@
-#!/bin/bash
+#!/bin/bash -e
+# shellcheck disable=SC2086
+
 NAME=keter
-if test -z "$VER" ; then
-    VER=2.0.1-zoomin112
-fi
-TARGET=jammy2204
-ARCH=amd64
+TARGET=${1:-jammy}
+ARCH=${2:-amd64}
+VER=$(sed -nr '/^Version:/ {s|Version: *||; s|^(([0-9][.])+)([0-9]+)$|\1zoomin\3|; p}' keter.cabal)
 
 BINNAME=${NAME}-${VER}-${TARGET}
-DEBNAME=${NAME}_${VER}_${ARCH}.deb
+DEBNAME=${NAME}_${VER}-${TARGET}_${ARCH}.deb
 
-export PATH=$PATH:/var/lib/gems/1.8/bin
 FPM=$(which fpm)
-STACK=$(which stack)
 
 
 set -e
 
-# ensure we have fpm, or try to install as necessary.
-if [[ -z "$FPM" ]]; then
-    sudo apt install ruby-dev gcc rubygems
-    sudo gem install fpm
-    FPM=$(which fpm)
-fi
+die () { test -n "$@" && echo "$@"; exit 1; }
 
-# Build project
-# Make sure either stack is present.
-if [[ ! -x "$STACK" ]]; then
-    echo "Error: You need stack"
-    if [[ ! -f $($STACK exec which $NAME) ]]; then
-        echo Building using stack...
-        $STACK build
-        echo done
-    fi
-fi
+cd "$(dirname "$0")" #-- wherever called from, work under packaging/
+echo "CWD in $PWD"
 
-rm -rf $NAME-$VER $DEBNAME
+# ensure we have fpm
+[[ -n "$FPM" ]] || die "No FPM found! Install from https://rubygems.org/gems/fpm"
+
+#-- compiling is hard enough -- even more so across arch/OS. don't try to automate.
+#-- instead, this script asserts expected location of the binary, bailing if absent.
+
+[[ -e "$BINNAME" ]] || die "Compile the binary for $TARGET $ARCH,
+  and put into $BINNAME"
+
+rm -rf DEBDIST $DEBNAME
 
 # make folder structure
-echo copying files
-mkdir -p $NAME-$VER/{bin,etc}
-mkdir -p $NAME-$VER/{incoming,log,paused,temp}
+mkdir -vp DEBDIST/{bin,etc}
+mkdir -vp DEBDIST/{incoming,log,paused,temp}
 
-# copy the keter binary into /bin
-if [[ -f $($STACK exec which $NAME) ]]; then
-    cp -p extra-bin/keter-* $NAME-$VER/bin
-    cp -p $($STACK exec which $NAME) $NAME-$VER/bin/$BINNAME
-    ln -s $BINNAME $NAME-$VER/bin/keter
-fi
+# install files, keeping permissions
+cp -vp $BINNAME DEBDIST/bin/
+ln -vs $BINNAME DEBDIST/bin/keter
+cp -vp app-crash-hook DEBDIST/bin/
+cp -vp keter-config.yaml anyHost.html DEBDIST/etc/
 
-cp -p app-crash-hook $NAME-$VER/bin/
-cp keter-config.yaml anyHost.html $NAME-$VER/etc/
 
 # use fpm to generate the debian package.
-echo building deb file
+echo building .deb package
 $FPM --name $NAME \
      --version $VER \
      --description "Keter is an appserver for Yesod webapps written in Haskell" \
@@ -63,11 +53,14 @@ $FPM --name $NAME \
      --depends libgmp10 \
      --depends zlib1g \
      -s dir -t deb \
+     --deb-dist $TARGET \
+     --deb-upstream-changelog ../ChangeLog.md \
      --deb-user keter-deploy \
      --deb-group keter-deploy \
      --deb-systemd keter.service \
      --deb-systemd-enable \
      --prefix /opt/keter \
-     -C $NAME-$VER .
+     --package $DEBNAME \
+     -C DEBDIST .
 
 echo DONE!
